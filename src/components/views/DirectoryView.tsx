@@ -111,6 +111,8 @@ function DirectoryInner() {
   const safePage = Math.min(page, pages - 1);
   const paged = useMemo(() => (pageSize ? rows.slice(safePage * size, safePage * size + size) : rows), [rows, pageSize, safePage, size]);
 
+  // TanStack Virtual intentionally returns an imperative instance; React Compiler cannot memoize it.
+  // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({ count: paged.length, getScrollElement: () => scrollRef.current, estimateSize: () => 52, overscan: 12 });
   const items = virtualizer.getVirtualItems();
 

@@ -7,6 +7,7 @@ import { cn, fmtNum, fmtPct } from "@/lib/format";
 import { generateInsights, insightBox } from "@/lib/insights";
 import { useDataStore } from "@/store/data";
 import { ChartCard } from "../charts/ChartCard";
+import { DashboardCustomizer, HiddenDashboardState, type DashboardWidget, useDashboardLayout } from "../dashboard/DashboardCustomizer";
 import { barOption, comboYearOption, gaugesOption, histogramOption, radarOption } from "../charts/options";
 import { useChartTokens } from "../charts/tokens";
 import { DataGate } from "../shell/Chrome";
@@ -14,6 +15,24 @@ import { Badge, Card, CardTitle, PageHeader, ProgressBar, Tooltip } from "../ui/
 import { InsightBox } from "./InsightBox";
 
 type Status = "Healthy" | "Watch" | "Risk" | "Info";
+
+const ANALYTICS_PAGE = "strategic-analytics";
+const STRATEGIC_METRICS = [
+  ["metric-growth", "Headcount Growth"], ["metric-hiring", "Hiring Rate"], ["metric-gender", "Gender Diversity Index"],
+  ["metric-nationality", "Nationality Diversity Index"], ["metric-department", "Average Department Size"], ["metric-management", "Management Ratio"],
+  ["metric-retention", "Retention Rate"], ["metric-turnover", "Turnover Rate"], ["metric-promotion", "Promotion Ratio"], ["metric-reporting", "Average Reporting Line"],
+] as const;
+const ANALYTICS_WIDGETS: DashboardWidget[] = [
+  ...STRATEGIC_METRICS.map(([id, label], index) => ({ id, label, group: "Strategic metric cards", essential: index < 3 || id === "metric-retention" || id === "metric-turnover" })),
+  { id: "section-insights", label: "Executive insight box", group: "Intelligence", essential: true },
+  { id: "section-gauges", label: "Diversity & retention gauges", group: "Intelligence", essential: true },
+  { id: "section-signals", label: "Key strategic signals", group: "Intelligence" },
+  { id: "section-scorecard", label: "Division scorecard", group: "Organization", essential: true },
+  { id: "visual-growth", label: "Headcount growth by year", group: "Organization" },
+  { id: "visual-radar", label: "Division capability radar", group: "Organization" },
+  { id: "visual-span", label: "Span of control distribution", group: "Organization" },
+  { id: "visual-layers", label: "Management layers", group: "Organization" },
+];
 
 function StrategicTile({ icon, label, value, context, status, formula, progress, index }: { icon: ReactNode; label: string; value: string; context: string; status: Status; formula: string; progress?: number; index: number }) {
   const tone = status === "Healthy" ? "success" : status === "Watch" ? "warning" : status === "Risk" ? "danger" : "primary";
@@ -99,6 +118,7 @@ function Scorecard() {
 function AnalyticsInner() {
   const filtered = useDataStore((s) => s.filtered);
   const now = useDataStore((s) => s.now);
+  const layout = useDashboardLayout(ANALYTICS_PAGE);
   const t = useChartTokens();
   const s = useMemo(() => memo(filtered, "strategic", () => strategicMetrics(filtered, now)), [filtered, now]);
   const box = useMemo(() => insightBox(filtered, now), [filtered, now]);
@@ -110,16 +130,16 @@ function AnalyticsInner() {
 
   const st = (ok: boolean, watch: boolean): Status => (ok ? "Healthy" : watch ? "Watch" : "Risk");
   const tiles = [
-    { icon: <TrendingUp />, label: "Headcount Growth", value: s.headcountGrowth === null ? "—" : `${s.headcountGrowth >= 0 ? "+" : ""}${s.headcountGrowth.toFixed(1)}%`, context: `${fmtNum(s.headcount12mAgo)} → ${fmtNum(s.headcount)} over 12 months`, status: st((s.headcountGrowth ?? 0) > 0, (s.headcountGrowth ?? 0) === 0), formula: "(Current headcount − headcount 12 months ago) ÷ headcount 12 months ago. Point-in-time headcount is reconstructed from joining dates." },
-    { icon: <UserPlus />, label: "Hiring Rate", value: fmtPct(s.hiringRate), context: `${fmtNum(s.hires12m)} hires in the last 12 months`, status: "Info" as Status, formula: "Employees hired in the last 12 months ÷ current headcount.", progress: s.hiringRate },
-    { icon: <Scale />, label: "Gender Diversity Index", value: `${s.genderDiversityIndex.toFixed(0)}/100`, context: "100 = perfect gender balance", status: st(s.genderDiversityIndex >= 80, s.genderDiversityIndex >= 50), formula: "Normalized Blau index: (1 − Σpᵢ²) ÷ 0.5 × 100 across genders.", progress: s.genderDiversityIndex },
-    { icon: <Globe2 />, label: "Nationality Diversity Index", value: `${s.nationalityDiversityIndex.toFixed(0)}/100`, context: "Probability two employees differ in nationality", status: "Info" as Status, formula: "Blau index (1 − Σpᵢ²) × 100 across nationalities.", progress: s.nationalityDiversityIndex },
-    { icon: <Users />, label: "Average Department Size", value: s.avgDeptSize.toFixed(1), context: "employees per department", status: st(s.avgDeptSize >= 8 && s.avgDeptSize <= 80, s.avgDeptSize < 120), formula: "Headcount ÷ number of distinct departments." },
-    { icon: <GitBranch />, label: "Management Ratio", value: `1 : ${s.managementRatio.toFixed(1)}`, context: `${fmtNum(s.managers)} managers · ${fmtPct(s.managerPct)} of staff`, status: st(s.managementRatio >= 5 && s.managementRatio <= 12, s.managementRatio >= 3), formula: "Non-managers ÷ managers. Managers = employees with direct reports, management titles or level ≥ L6." },
-    { icon: <Repeat />, label: "Retention Rate", value: fmtPct(s.retentionRate), context: "share of workforce not flagged as exiting", status: st(s.retentionRate >= 92, s.retentionRate >= 85), formula: "100% − turnover rate.", progress: s.retentionRate },
-    { icon: <UserMinus />, label: "Turnover Rate", value: fmtPct(s.turnoverRate), context: `${fmtNum(s.separations)} resigned / terminated / exiting`, status: st(s.turnoverRate <= 8, s.turnoverRate <= 15), formula: "Employees whose Remarks indicate resignation, termination, end of contract or exit ÷ headcount." },
-    { icon: <Percent />, label: "Promotion Ratio", value: fmtPct(s.promotionRatio), context: `${fmtNum(s.promotions)} employees with promotion remarks`, status: st(s.promotionRatio >= 4, s.promotionRatio >= 2), formula: "Employees whose Remarks mention a promotion ÷ headcount." },
-    { icon: <Activity />, label: "Average Reporting Line", value: `${s.avgReportingLine.toFixed(1)} levels`, context: `${s.maxLayers} management layers in total`, status: st(s.maxLayers <= 7, s.maxLayers <= 9), formula: "Average depth of each employee in the supervisor hierarchy (1 = top)." },
+    { id: "metric-growth", icon: <TrendingUp />, label: "Headcount Growth", value: s.headcountGrowth === null ? "—" : `${s.headcountGrowth >= 0 ? "+" : ""}${s.headcountGrowth.toFixed(1)}%`, context: `${fmtNum(s.headcount12mAgo)} → ${fmtNum(s.headcount)} over 12 months`, status: st((s.headcountGrowth ?? 0) > 0, (s.headcountGrowth ?? 0) === 0), formula: "(Current headcount − headcount 12 months ago) ÷ headcount 12 months ago. Point-in-time headcount is reconstructed from joining dates." },
+    { id: "metric-hiring", icon: <UserPlus />, label: "Hiring Rate", value: fmtPct(s.hiringRate), context: `${fmtNum(s.hires12m)} hires in the last 12 months`, status: "Info" as Status, formula: "Employees hired in the last 12 months ÷ current headcount.", progress: s.hiringRate },
+    { id: "metric-gender", icon: <Scale />, label: "Gender Diversity Index", value: `${s.genderDiversityIndex.toFixed(0)}/100`, context: "100 = perfect gender balance", status: st(s.genderDiversityIndex >= 80, s.genderDiversityIndex >= 50), formula: "Normalized Blau index: (1 − Σpᵢ²) ÷ 0.5 × 100 across genders.", progress: s.genderDiversityIndex },
+    { id: "metric-nationality", icon: <Globe2 />, label: "Nationality Diversity Index", value: `${s.nationalityDiversityIndex.toFixed(0)}/100`, context: "Probability two employees differ in nationality", status: "Info" as Status, formula: "Blau index (1 − Σpᵢ²) × 100 across nationalities.", progress: s.nationalityDiversityIndex },
+    { id: "metric-department", icon: <Users />, label: "Average Department Size", value: s.avgDeptSize.toFixed(1), context: "employees per department", status: st(s.avgDeptSize >= 8 && s.avgDeptSize <= 80, s.avgDeptSize < 120), formula: "Headcount ÷ number of distinct departments." },
+    { id: "metric-management", icon: <GitBranch />, label: "Management Ratio", value: `1 : ${s.managementRatio.toFixed(1)}`, context: `${fmtNum(s.managers)} managers · ${fmtPct(s.managerPct)} of staff`, status: st(s.managementRatio >= 5 && s.managementRatio <= 12, s.managementRatio >= 3), formula: "Non-managers ÷ managers. Managers = employees with direct reports, management titles or level ≥ L6." },
+    { id: "metric-retention", icon: <Repeat />, label: "Retention Rate", value: fmtPct(s.retentionRate), context: "share of workforce not flagged as exiting", status: st(s.retentionRate >= 92, s.retentionRate >= 85), formula: "100% − turnover rate.", progress: s.retentionRate },
+    { id: "metric-turnover", icon: <UserMinus />, label: "Turnover Rate", value: fmtPct(s.turnoverRate), context: `${fmtNum(s.separations)} resigned / terminated / exiting`, status: st(s.turnoverRate <= 8, s.turnoverRate <= 15), formula: "Employees whose Remarks indicate resignation, termination, end of contract or exit ÷ headcount." },
+    { id: "metric-promotion", icon: <Percent />, label: "Promotion Ratio", value: fmtPct(s.promotionRatio), context: `${fmtNum(s.promotions)} employees with promotion remarks`, status: st(s.promotionRatio >= 4, s.promotionRatio >= 2), formula: "Employees whose Remarks mention a promotion ÷ headcount." },
+    { id: "metric-reporting", icon: <Activity />, label: "Average Reporting Line", value: `${s.avgReportingLine.toFixed(1)} levels`, context: `${s.maxLayers} management layers in total`, status: st(s.maxLayers <= 7, s.maxLayers <= 9), formula: "Average depth of each employee in the supervisor hierarchy (1 = top)." },
   ];
 
   const gauges = useMemo(() => gaugesOption([
@@ -139,45 +159,58 @@ function AnalyticsInner() {
     );
   }, [divs, t]);
 
+  const visibleTiles = tiles.filter((tile) => layout.visible(tile.id));
+  const sectionIds = ["section-insights", "section-gauges", "section-signals", "section-scorecard", "visual-growth", "visual-radar", "visual-span", "visual-layers"];
+  const hasAnything = visibleTiles.length > 0 || layout.visibleCount(sectionIds) > 0;
+
   return (
     <>
-      <PageHeader eyebrow="Strategic Workforce Analytics" title="Growth, diversity & organizational health" icon={<Target />} subtitle="Board-level workforce metrics with definitions, status benchmarks and dynamic insights" />
-      <div className="grid grid-cols-1 gap-3 min-[460px]:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
-        {tiles.map((x, i) => (
-          <StrategicTile key={x.label} {...x} index={i} />
-        ))}
-      </div>
-      <div className="mt-5 grid gap-4 xl:grid-cols-3">
-        <InsightBox items={box} narrative={insights.find((i) => i.id === "largest-division")?.narrative} />
-        <div className="grid gap-4 xl:col-span-2">
-          <ChartCard title="Diversity & Retention Gauges" subtitle="Index scores out of 100" option={gauges} height={220} />
-          <Card className="animate-fade-up">
-            <CardTitle icon={<Activity />} title="Key Strategic Signals" subtitle="Highest-priority findings from the insights engine" />
-            <div className="grid gap-2 sm:grid-cols-2">
-              {insights.filter((i) => i.severity !== "info").slice(0, 6).map((i) => (
-                <div key={i.id} className="rounded-xl border border-line bg-surface-muted/60 p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-[12px] font-semibold text-fg">{i.title}</p>
-                    <Badge tone={i.severity === "positive" ? "success" : i.severity === "warning" ? "warning" : "danger"}>{i.metric}</Badge>
-                  </div>
-                  <p className="mt-1 line-clamp-3 text-[11.5px] leading-relaxed text-muted">{i.narrative}</p>
-                </div>
-              ))}
-            </div>
-          </Card>
+      <PageHeader
+        eyebrow="Strategic Workforce Analytics"
+        title="Growth, diversity & organizational health"
+        icon={<Target />}
+        subtitle="Board-level workforce metrics with definitions, status benchmarks and dynamic insights"
+        actions={<DashboardCustomizer page={ANALYTICS_PAGE} title="Strategic Analytics" widgets={ANALYTICS_WIDGETS} />}
+      />
+      {!hasAnything && <HiddenDashboardState page={ANALYTICS_PAGE} title="Strategic Analytics" widgets={ANALYTICS_WIDGETS} />}
+      {visibleTiles.length > 0 && (
+        <div className="grid grid-flow-row-dense grid-cols-1 gap-3 min-[460px]:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
+          {visibleTiles.map((tile, index) => (
+            <StrategicTile key={tile.id} {...tile} index={index} />
+          ))}
         </div>
-      </div>
-      <div className="mt-4">
-        <Scorecard />
-      </div>
-      <div className="mt-4 grid gap-4 xl:grid-cols-2">
-        <ChartCard title="Headcount Growth by Year" subtitle="Annual hires vs year-end headcount (10 years)" option={yearOpt} height={300} table={{ columns: ["Year", "Hires", "Headcount"], rows: years.labels.map((l, i) => [l, years.hires[i], years.headcount[i]]) }} />
-        <ChartCard title="Division Capability Radar" subtitle="Top 4 divisions compared across six dimensions" option={radar} height={300} />
-      </div>
-      <div className="mt-4 grid gap-4 xl:grid-cols-2">
-        <ChartCard title="Span of Control Distribution" subtitle={`Direct reports per supervisor · ${span.overloaded} over-extended (>12)`} option={spanOpt} height={280} />
-        <ChartCard title="Management Layers" subtitle="Employees at each reporting layer (1 = top)" option={layerOpt} height={280} />
-      </div>
+      )}
+      {layout.visibleCount(["section-insights", "section-gauges", "section-signals"]) > 0 && (
+        <div className="mt-5 grid grid-flow-row-dense gap-4 xl:grid-cols-3">
+          {layout.visible("section-insights") && <InsightBox items={box} narrative={insights.find((i) => i.id === "largest-division")?.narrative} />}
+          {layout.visible("section-gauges") && <ChartCard className="xl:col-span-2" title="Diversity & Retention Gauges" subtitle="Index scores out of 100" option={gauges} height={220} />}
+          {layout.visible("section-signals") && (
+            <Card className="animate-fade-up xl:col-span-2">
+              <CardTitle icon={<Activity />} title="Key Strategic Signals" subtitle="Highest-priority findings from the insights engine" />
+              <div className="grid gap-2 sm:grid-cols-2">
+                {insights.filter((i) => i.severity !== "info").slice(0, 6).map((i) => (
+                  <div key={i.id} className="rounded-xl border border-line bg-surface-muted/60 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[12px] font-semibold text-fg">{i.title}</p>
+                      <Badge tone={i.severity === "positive" ? "success" : i.severity === "warning" ? "warning" : "danger"}>{i.metric}</Badge>
+                    </div>
+                    <p className="mt-1 line-clamp-3 text-[11.5px] leading-relaxed text-muted">{i.narrative}</p>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+        </div>
+      )}
+      {layout.visible("section-scorecard") && <div className="mt-4"><Scorecard /></div>}
+      {layout.visibleCount(["visual-growth", "visual-radar", "visual-span", "visual-layers"]) > 0 && (
+        <div className="mt-4 grid grid-flow-row-dense gap-4 xl:grid-cols-2">
+          {layout.visible("visual-growth") && <ChartCard title="Headcount Growth by Year" subtitle="Annual hires vs year-end headcount (10 years)" option={yearOpt} height={300} table={{ columns: ["Year", "Hires", "Headcount"], rows: years.labels.map((l, i) => [l, years.hires[i], years.headcount[i]]) }} />}
+          {layout.visible("visual-radar") && <ChartCard title="Division Capability Radar" subtitle="Top 4 divisions compared across six dimensions" option={radar} height={300} />}
+          {layout.visible("visual-span") && <ChartCard title="Span of Control Distribution" subtitle={`Direct reports per supervisor · ${span.overloaded} over-extended (>12)`} option={spanOpt} height={280} />}
+          {layout.visible("visual-layers") && <ChartCard title="Management Layers" subtitle="Employees at each reporting layer (1 = top)" option={layerOpt} height={280} />}
+        </div>
+      )}
     </>
   );
 }

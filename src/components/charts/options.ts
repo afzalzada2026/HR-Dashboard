@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import type { EChartsOption } from "echarts";
 import type { NameValue, SunNode } from "@/lib/analytics";
 import type { ChartTokens } from "./tokens";

@@ -10,8 +10,11 @@ export function useCountUp(target: number, duration = 1100): number {
   const from = useRef(0);
   useEffect(() => {
     if (!isFinite(target)) {
-      setVal(target);
-      return;
+      const frame = requestAnimationFrame(() => {
+        setVal(target);
+        from.current = target;
+      });
+      return () => cancelAnimationFrame(frame);
     }
     const reduce = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     const start = performance.now();

@@ -36,7 +36,7 @@ async function parseFile(file: File): Promise<{ name: string; matrix: unknown[][
     const res = Papa.parse<unknown[]>(text, { skipEmptyLines: "greedy" });
     return [{ name: "CSV", matrix: res.data }];
   }
-  const XLSX = await import("xlsx");
+  const XLSX = await import("@e965/xlsx");
   const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
   return wb.SheetNames.map((name) => ({ name, matrix: XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[name], { header: 1, raw: true, defval: "", blankrows: false }) }));
 }
@@ -70,6 +70,7 @@ function Uploader({ onImported }: { onImported: () => void }) {
   const handle = async (file: File) => {
     if (!allowed) return notify("warning", "Upload not permitted", `${ROLES[session.role].label} role cannot upload datasets.`);
     if (!/\.(xlsx|xls|csv|txt)$/i.test(file.name)) return notify("error", "Unsupported file", "Please upload an Excel (.xlsx) or CSV (.csv) file.");
+    if (file.size > 50 * 1024 * 1024) return notify("error", "File is too large", "The browser import limit is 50 MB. Split the workbook or use a smaller extract.");
     setDone(null);
     setBusy(`Reading ${file.name}…`);
     try {
@@ -77,6 +78,7 @@ function Uploader({ onImported }: { onImported: () => void }) {
       const best = sheets.reduce((bi, s, i) => (s.matrix.length > (sheets[bi]?.matrix.length ?? 0) ? i : bi), 0);
       const p = build(file, sheets, best);
       if (!p.rows.length) throw new Error("No data rows detected in the file.");
+      if (p.rows.length > 150_000) throw new Error("Dataset exceeds the 150,000-row import limit.");
       setParsed(p);
       setName(file.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " "));
       notify("info", "File parsed", `${fmtNum(p.rows.length)} rows · ${Object.keys(p.mapping).length}/29 fields auto-mapped`);

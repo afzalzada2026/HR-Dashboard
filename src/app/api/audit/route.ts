@@ -5,6 +5,7 @@ import { ensureSchema } from "@/db/ensure";
 import { auditLogs } from "@/db/schema";
 import { can } from "@/lib/rbac";
 import { deny, getSession, serverError, writeAudit } from "@/lib/server";
+import { safeText } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 
@@ -46,9 +47,9 @@ export async function POST(req: NextRequest) {
     await ensureSchema();
     const session = getSession(req);
     const body = (await req.json().catch(() => ({}))) as { action?: string; category?: string; details?: string; meta?: Record<string, unknown> };
-    const action = String(body.action || "").slice(0, 120);
+    const action = safeText(body.action, 120);
     if (!action) return Response.json({ error: "action is required" }, { status: 400 });
-    await writeAudit(req, session, action, String(body.category || "general").slice(0, 40), String(body.details || "").slice(0, 1000), body.meta ?? null);
+    await writeAudit(req, session, action, safeText(body.category, 40) || "general", safeText(body.details, 1_000), body.meta ?? null);
     return Response.json({ ok: true });
   } catch (err) {
     return serverError(err);

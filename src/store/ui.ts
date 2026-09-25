@@ -31,6 +31,7 @@ interface UIState {
   exporting: boolean;
   toasts: Toast[];
   notifications: Notice[];
+  hiddenWidgets: Record<string, string[]>;
   setTheme: (t: Theme) => void;
   setStorageMode: (m: StorageMode) => void;
   setSession: (s: Session) => void;
@@ -43,6 +44,9 @@ interface UIState {
   dismissToast: (id: number) => void;
   markAllRead: () => void;
   clearNotifications: () => void;
+  setWidgetVisible: (page: string, widgetId: string, visible: boolean) => void;
+  setPageWidgets: (page: string, visibleIds: string[], allIds: string[]) => void;
+  resetPageWidgets: (page: string) => void;
 }
 
 let seq = 0;
@@ -67,6 +71,7 @@ export const useUIStore = create<UIState>()(
       exporting: false,
       toasts: [],
       notifications: [],
+      hiddenWidgets: {},
       setTheme: (theme) => set({ theme }),
       setStorageMode: (storageMode) => set({ storageMode }),
       setSession: (session) => {
@@ -89,6 +94,27 @@ export const useUIStore = create<UIState>()(
       dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
       markAllRead: () => set((s) => ({ notifications: s.notifications.map((n) => ({ ...n, read: true })) })),
       clearNotifications: () => set({ notifications: [] }),
+      setWidgetVisible: (page, widgetId, visible) =>
+        set((s) => {
+          const key = `${s.session.userId}:${page}`;
+          const hidden = new Set(s.hiddenWidgets[key] ?? []);
+          if (visible) hidden.delete(widgetId);
+          else hidden.add(widgetId);
+          return { hiddenWidgets: { ...s.hiddenWidgets, [key]: [...hidden] } };
+        }),
+      setPageWidgets: (page, visibleIds, allIds) =>
+        set((s) => {
+          const key = `${s.session.userId}:${page}`;
+          const visible = new Set(visibleIds);
+          return { hiddenWidgets: { ...s.hiddenWidgets, [key]: allIds.filter((id) => !visible.has(id)) } };
+        }),
+      resetPageWidgets: (page) =>
+        set((s) => {
+          const key = `${s.session.userId}:${page}`;
+          const next = { ...s.hiddenWidgets };
+          delete next[key];
+          return { hiddenWidgets: next };
+        }),
     }),
     {
       name: "atoma-ui",
@@ -100,6 +126,7 @@ export const useUIStore = create<UIState>()(
         session: s.session,
         sidebarCollapsed: s.sidebarCollapsed,
         notifications: s.notifications.slice(0, 20),
+        hiddenWidgets: s.hiddenWidgets,
       }),
       onRehydrateStorage: () => () => {
         useUIStore.setState({ hydrated: true });

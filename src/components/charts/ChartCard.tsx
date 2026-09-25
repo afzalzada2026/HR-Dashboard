@@ -24,8 +24,8 @@ export function LazyMount({ height, children }: { height: number | string; child
     const node = ref.current;
     if (!node) return;
     if (typeof IntersectionObserver === "undefined") {
-      setVisible(true);
-      return;
+      const frame = requestAnimationFrame(() => setVisible(true));
+      return () => cancelAnimationFrame(frame);
     }
     const io = new IntersectionObserver(
       (entries) => {

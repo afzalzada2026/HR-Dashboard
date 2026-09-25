@@ -6,6 +6,7 @@ import { datasetRecords, datasets } from "@/db/schema";
 import { applyRowLevelSecurity, can } from "@/lib/rbac";
 import { deny, getSession, serverError, toMeta, writeAudit } from "@/lib/server";
 import type { Employee } from "@/lib/types";
+import { safeText } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +19,7 @@ export async function GET(req: NextRequest, { params }: Ctx) {
     const { id } = await params;
     if (!UUID_RE.test(id)) return Response.json({ error: "Invalid dataset id" }, { status: 400 });
     const session = getSession(req);
+    if (!can(session.role, "view_dashboard")) return deny("view_dashboard");
     const [row] = await db.select().from(datasets).where(eq(datasets.id, id));
     if (!row) return Response.json({ error: "Dataset not found" }, { status: 404 });
     const [rec] = await db.select({ employees: datasetRecords.employees }).from(datasetRecords).where(eq(datasetRecords.datasetId, id));
@@ -33,13 +35,14 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     const { id } = await params;
     if (!UUID_RE.test(id)) return Response.json({ error: "Invalid dataset id" }, { status: 400 });
     const session = getSession(req);
+    if (!can(session.role, "upload_data")) return deny("upload_data");
     const body = (await req.json().catch(() => ({}))) as { active?: boolean; name?: string };
     const [row] = await db.select().from(datasets).where(eq(datasets.id, id));
     if (!row) return Response.json({ error: "Dataset not found" }, { status: 404 });
     if (typeof body.name === "string" && body.name.trim()) {
-      if (!can(session.role, "upload_data")) return deny("upload_data");
-      await db.update(datasets).set({ name: body.name.trim().slice(0, 200) }).where(eq(datasets.id, id));
-      await writeAudit(req, session, "dataset.renamed", "data", `${row.name} → ${body.name.trim()}`);
+      const name = safeText(body.name, 200);
+      await db.update(datasets).set({ name }).where(eq(datasets.id, id));
+      await writeAudit(req, session, "dataset.renamed", "data", `${row.name} → ${name}`);
     }
     if (body.active) {
       await db.transaction(async (tx) => {

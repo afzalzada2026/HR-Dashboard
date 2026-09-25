@@ -11,12 +11,35 @@ import { useDataStore } from "@/store/data";
 import { useUIStore } from "@/store/ui";
 import { ChartCard } from "../charts/ChartCard";
 import type { ChartClick } from "../charts/EChart";
+import { DashboardCustomizer, HiddenDashboardState, type DashboardWidget, useDashboardLayout } from "../dashboard/DashboardCustomizer";
 import {
   barOption, donutOption, funnelOption, heatmapOption, histogramOption, mapOption, pieOption, scatterOption, stackedOption, sunburstOption, treemapOption, trendOption,
 } from "../charts/options";
 import { useChartTokens } from "../charts/tokens";
 import { DataGate } from "../shell/Chrome";
 import { Button, PageHeader, Segmented } from "../ui/primitives";
+
+const VISUALS_PAGE = "interactive-visuals";
+const VISUAL_WIDGETS: DashboardWidget[] = [
+  { id: "division", label: "Division Headcount", group: "Workforce distribution", essential: true },
+  { id: "department", label: "Department Headcount", group: "Workforce distribution", essential: true },
+  { id: "gender", label: "Gender by Division", group: "Diversity", essential: true },
+  { id: "age", label: "Age Analysis", group: "Demographics", essential: true },
+  { id: "tenure", label: "Tenure Analysis", group: "Demographics" },
+  { id: "joining", label: "Joining Trend", group: "Workforce distribution", essential: true },
+  { id: "station", label: "Duty Station Analysis", group: "Location" },
+  { id: "qualification", label: "Qualification Analysis", group: "Capability" },
+  { id: "nationality", label: "Nationality Analysis", group: "Diversity" },
+  { id: "marital", label: "Marital Status", group: "Demographics" },
+  { id: "sunburst", label: "Organization Structure", group: "Organization" },
+  { id: "supervisor", label: "Supervisor Analysis", group: "Organization" },
+  { id: "scatter", label: "Employee Age vs Tenure", group: "Demographics" },
+  { id: "map", label: "Regional Analysis", group: "Location", essential: true },
+  { id: "heatmap", label: "Diversity Heat Matrix", group: "Diversity" },
+  { id: "level", label: "Actual Level Pyramid", group: "Organization" },
+  { id: "nationalization", label: "Nationalization by Division", group: "Diversity" },
+  { id: "blood", label: "Blood Group Distribution", group: "Demographics" },
+];
 
 function VisualsInner() {
   const filtered = useDataStore((s) => s.filtered);
@@ -27,6 +50,7 @@ function VisualsInner() {
   const patch = useDataStore((s) => s.patchFilters);
   const clear = useDataStore((s) => s.clearFilters);
   const openEmployee = useUIStore((s) => s.openEmployee);
+  const layout = useDashboardLayout(VISUALS_PAGE);
   const t = useChartTokens();
   const [heatMode, setHeatMode] = useState<"count" | "pct">("pct");
   const [heatCol, setHeatCol] = useState<"gender" | "expatLocal">("gender");
@@ -123,6 +147,7 @@ function VisualsInner() {
   );
 
   const n = activeFilterCount(filters);
+  const shown = VISUAL_WIDGETS.filter((widget) => layout.visible(widget.id)).length;
   return (
     <>
       <PageHeader
@@ -131,75 +156,55 @@ function VisualsInner() {
         icon={<ChartColumn />}
         subtitle={
           <span className="inline-flex items-center gap-1.5">
-            <MousePointerClick className="h-3.5 w-3.5 text-accent" /> 18 linked visuals — click any bar, segment, tile or province to cross-filter everything (Power BI-style).
+            <MousePointerClick className="h-3.5 w-3.5 text-accent" /> {shown} of 18 linked visuals shown — click any mark to cross-filter everything.
           </span>
         }
         actions={
-          n > 0 ? (
-            <Button onClick={clear}>
-              <FilterX /> Clear {n} filter{n > 1 ? "s" : ""}
-            </Button>
-          ) : undefined
+          <>
+            <DashboardCustomizer page={VISUALS_PAGE} title="Interactive Visuals" widgets={VISUAL_WIDGETS} />
+            {n > 0 && (
+              <Button onClick={clear}>
+                <FilterX /> Clear {n} filter{n > 1 ? "s" : ""}
+              </Button>
+            )}
+          </>
         }
       />
-      <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
-        <ChartCard title="Division Headcount" subtitle="Workforce distribution · bar" interactive option={opts.div} onClick={click("division")} table={{ columns: ["Division", "Employees"], rows: divs.map((d) => [d.name, d.value]) }} />
-        <ChartCard title="Department Headcount" subtitle="Organizational distribution · top 10 donut" interactive option={opts.dept} onClick={click("department")} table={{ columns: ["Department", "Employees"], rows: depts.map((d) => [d.name, d.value]) }} delay={40} />
-        <ChartCard title="Gender by Division" subtitle="Gender analytics · stacked column" interactive option={opts.genderDiv} onClick={(p) => p.seriesName && pair("division", p.name, "gender", p.seriesName)} table={{ columns: ["Division", "Male", "Female"], rows: genderByDiv.cats.map((c, i) => [c, genderByDiv.male[i], genderByDiv.female[i]]) }} delay={80} />
-        <ChartCard
-          title="Age Analysis"
-          subtitle="Age histogram · click a band"
-          interactive
-          option={opts.age}
-          onClick={(p) => {
-            const b = AGE_BUCKETS[p.dataIndex];
-            if (b) patch(ageSel === p.dataIndex ? { ageMin: null, ageMax: null } : { ageMin: b.min, ageMax: b.max });
-          }}
-          table={{ columns: ["Age band", "Employees"], rows: ages.labels.map((l, i) => [l, ages.total[i]]) }}
-        />
-        <ChartCard
-          title="Tenure Analysis"
-          subtitle="Years of service histogram · click a band"
-          interactive
-          option={opts.tenure}
-          onClick={(p) => {
-            const b = TENURE_BUCKETS[p.dataIndex];
-            if (b) patch(tenSel === p.dataIndex ? { tenureMin: null, tenureMax: null } : { tenureMin: b.min, tenureMax: b.max });
-          }}
-          table={{ columns: ["Tenure", "Employees"], rows: tenure.labels.map((l, i) => [l, tenure.values[i]]) }}
-          delay={40}
-        />
-        <ChartCard title="Joining Trend" subtitle="Monthly hiring trend · drag the slider to zoom" option={opts.trend} table={{ columns: ["Month", "Hires", "Headcount"], rows: trend.labels.map((l, i) => [l, trend.hires[i], trend.cumulative[i]]) }} delay={80} />
-        <ChartCard title="Duty Station Analysis" subtitle="Employees by location · top 15" interactive option={opts.stations} onClick={click("dutyStation")} height={360} table={{ columns: ["Duty station", "Employees"], rows: stations.map((d) => [d.name, d.value]) }} />
-        <ChartCard title="Qualification Analysis" subtitle="Treemap of qualification groups" interactive option={opts.quals} onClick={click("qualification")} height={360} table={{ columns: ["Qualification", "Employees"], rows: quals.map((d) => [d.name, d.value]) }} delay={40} />
-        <ChartCard title="Nationality Analysis" subtitle="Nationality distribution treemap" interactive option={opts.nats} onClick={click("nationality")} height={360} table={{ columns: ["Nationality", "Employees"], rows: nats.map((d) => [d.name, d.value]) }} delay={80} />
-        <ChartCard title="Marital Status" subtitle="Married · single · other" interactive option={opts.marital} onClick={click("maritalStatus")} table={{ columns: ["Status", "Employees"], rows: marital.map((d) => [d.name, d.value]) }} />
-        <ChartCard title="Organization Structure" subtitle="Sunburst: Division → Department → Title · click to drill" option={opts.sun} delay={40} />
-        <ChartCard title="Supervisor Analysis" subtitle="Direct reports per supervisor · top 15" interactive option={opts.sups} onClick={click("supervisor")} table={{ columns: ["Supervisor", "Direct reports"], rows: sups.map((d) => [d.name, d.value]) }} delay={80} />
-        <ChartCard title="Employee Age vs Tenure" subtitle="Scatter plot · click a point to open the profile" interactive option={opts.scatter} onClick={(p) => Array.isArray(p.value) && typeof p.value[3] === "string" && openEmployee(p.value[3])} height={340} />
-        <ChartCard title="Regional Analysis" subtitle="Province headcount map · click to filter" interactive needsMap option={opts.map} onClick={(p) => p.name && toggle("province", p.name)} height={340} table={{ columns: ["Province", "Employees"], rows: provinces.map((d) => [d.name, d.value]) }} delay={40} />
-        <ChartCard
-          title="Diversity Heat Matrix"
-          subtitle={`Division × ${heatCol === "gender" ? "Gender" : "Expat/Local"} · ${heatMode === "pct" ? "row %" : "headcount"}`}
-          interactive
-          option={opts.heat}
-          height={340}
-          delay={80}
-          onClick={(p) => {
-            const v = p.value as number[] | undefined;
-            if (v) pair("division", heat.rows[v[1]], heatCol, heat.cols[v[0]]);
-          }}
-          actions={
-            <div className="mr-1 hidden gap-1 sm:flex">
-              <Segmented size="xs" value={heatCol} onChange={setHeatCol} options={[{ value: "gender", label: "Gender" }, { value: "expatLocal", label: "Expat" }]} />
-              <Segmented size="xs" value={heatMode} onChange={setHeatMode} options={[{ value: "pct", label: "%" }, { value: "count", label: "#" }]} />
-            </div>
-          }
-        />
-        <ChartCard title="Actual Level Pyramid" subtitle="Headcount by job level (senior at top)" interactive option={opts.levels} onClick={click("level")} height={340} table={{ columns: ["Level", "Employees"], rows: levels.map((d) => [d.name, d.value]) }} />
-        <ChartCard title="Nationalization by Division" subtitle="Local vs expat share · 100% stacked" interactive option={opts.expat} onClick={(p) => p.seriesName && pair("division", p.name, "expatLocal", p.seriesName)} height={340} delay={40} />
-        <ChartCard title="Blood Group Distribution" subtitle="Nightingale rose · emergency readiness" interactive option={opts.blood} onClick={click("bloodGroup")} height={340} table={{ columns: ["Blood group", "Employees"], rows: blood.map((d) => [d.name, d.value]) }} delay={80} />
-      </div>
+      {shown === 0 && <HiddenDashboardState page={VISUALS_PAGE} title="Interactive Visuals" widgets={VISUAL_WIDGETS} />}
+      {shown > 0 && (
+        <div className="grid grid-flow-row-dense gap-4 lg:grid-cols-2 2xl:grid-cols-3">
+          {layout.visible("division") && <ChartCard title="Division Headcount" subtitle="Workforce distribution · bar" interactive option={opts.div} onClick={click("division")} table={{ columns: ["Division", "Employees"], rows: divs.map((d) => [d.name, d.value]) }} />}
+          {layout.visible("department") && <ChartCard title="Department Headcount" subtitle="Organizational distribution · top 10 donut" interactive option={opts.dept} onClick={click("department")} table={{ columns: ["Department", "Employees"], rows: depts.map((d) => [d.name, d.value]) }} delay={40} />}
+          {layout.visible("gender") && <ChartCard title="Gender by Division" subtitle="Gender analytics · stacked column" interactive option={opts.genderDiv} onClick={(p) => p.seriesName && pair("division", p.name, "gender", p.seriesName)} table={{ columns: ["Division", "Male", "Female"], rows: genderByDiv.cats.map((c, i) => [c, genderByDiv.male[i], genderByDiv.female[i]]) }} delay={80} />}
+          {layout.visible("age") && (
+            <ChartCard title="Age Analysis" subtitle="Age histogram · click a band" interactive option={opts.age} onClick={(p) => { const b = AGE_BUCKETS[p.dataIndex]; if (b) patch(ageSel === p.dataIndex ? { ageMin: null, ageMax: null } : { ageMin: b.min, ageMax: b.max }); }} table={{ columns: ["Age band", "Employees"], rows: ages.labels.map((l, i) => [l, ages.total[i]]) }} />
+          )}
+          {layout.visible("tenure") && (
+            <ChartCard title="Tenure Analysis" subtitle="Years of service histogram · click a band" interactive option={opts.tenure} onClick={(p) => { const b = TENURE_BUCKETS[p.dataIndex]; if (b) patch(tenSel === p.dataIndex ? { tenureMin: null, tenureMax: null } : { tenureMin: b.min, tenureMax: b.max }); }} table={{ columns: ["Tenure", "Employees"], rows: tenure.labels.map((l, i) => [l, tenure.values[i]]) }} delay={40} />
+          )}
+          {layout.visible("joining") && <ChartCard title="Joining Trend" subtitle="Monthly hiring trend · drag the slider to zoom" option={opts.trend} table={{ columns: ["Month", "Hires", "Headcount"], rows: trend.labels.map((l, i) => [l, trend.hires[i], trend.cumulative[i]]) }} delay={80} />}
+          {layout.visible("station") && <ChartCard title="Duty Station Analysis" subtitle="Employees by location · top 15" interactive option={opts.stations} onClick={click("dutyStation")} height={360} table={{ columns: ["Duty station", "Employees"], rows: stations.map((d) => [d.name, d.value]) }} />}
+          {layout.visible("qualification") && <ChartCard title="Qualification Analysis" subtitle="Treemap of qualification groups" interactive option={opts.quals} onClick={click("qualification")} height={360} table={{ columns: ["Qualification", "Employees"], rows: quals.map((d) => [d.name, d.value]) }} delay={40} />}
+          {layout.visible("nationality") && <ChartCard title="Nationality Analysis" subtitle="Nationality distribution treemap" interactive option={opts.nats} onClick={click("nationality")} height={360} table={{ columns: ["Nationality", "Employees"], rows: nats.map((d) => [d.name, d.value]) }} delay={80} />}
+          {layout.visible("marital") && <ChartCard title="Marital Status" subtitle="Married · single · other" interactive option={opts.marital} onClick={click("maritalStatus")} table={{ columns: ["Status", "Employees"], rows: marital.map((d) => [d.name, d.value]) }} />}
+          {layout.visible("sunburst") && <ChartCard title="Organization Structure" subtitle="Sunburst: Division → Department → Title · click to drill" option={opts.sun} delay={40} />}
+          {layout.visible("supervisor") && <ChartCard title="Supervisor Analysis" subtitle="Direct reports per supervisor · top 15" interactive option={opts.sups} onClick={click("supervisor")} table={{ columns: ["Supervisor", "Direct reports"], rows: sups.map((d) => [d.name, d.value]) }} delay={80} />}
+          {layout.visible("scatter") && <ChartCard title="Employee Age vs Tenure" subtitle="Scatter plot · click a point to open the profile" interactive option={opts.scatter} onClick={(p) => Array.isArray(p.value) && typeof p.value[3] === "string" && openEmployee(p.value[3])} height={340} />}
+          {layout.visible("map") && <ChartCard title="Regional Analysis" subtitle="Province headcount map · click to filter" interactive needsMap option={opts.map} onClick={(p) => p.name && toggle("province", p.name)} height={340} table={{ columns: ["Province", "Employees"], rows: provinces.map((d) => [d.name, d.value]) }} delay={40} />}
+          {layout.visible("heatmap") && (
+            <ChartCard
+              title="Diversity Heat Matrix"
+              subtitle={`Division × ${heatCol === "gender" ? "Gender" : "Expat/Local"} · ${heatMode === "pct" ? "row %" : "headcount"}`}
+              interactive option={opts.heat} height={340} delay={80}
+              onClick={(p) => { const v = p.value as number[] | undefined; if (v) pair("division", heat.rows[v[1]], heatCol, heat.cols[v[0]]); }}
+              actions={<div className="mr-1 hidden gap-1 sm:flex"><Segmented size="xs" value={heatCol} onChange={setHeatCol} options={[{ value: "gender", label: "Gender" }, { value: "expatLocal", label: "Expat" }]} /><Segmented size="xs" value={heatMode} onChange={setHeatMode} options={[{ value: "pct", label: "%" }, { value: "count", label: "#" }]} /></div>}
+            />
+          )}
+          {layout.visible("level") && <ChartCard title="Actual Level Pyramid" subtitle="Headcount by job level (senior at top)" interactive option={opts.levels} onClick={click("level")} height={340} table={{ columns: ["Level", "Employees"], rows: levels.map((d) => [d.name, d.value]) }} />}
+          {layout.visible("nationalization") && <ChartCard title="Nationalization by Division" subtitle="Local vs expat share · 100% stacked" interactive option={opts.expat} onClick={(p) => p.seriesName && pair("division", p.name, "expatLocal", p.seriesName)} height={340} delay={40} />}
+          {layout.visible("blood") && <ChartCard title="Blood Group Distribution" subtitle="Nightingale rose · emergency readiness" interactive option={opts.blood} onClick={click("bloodGroup")} height={340} table={{ columns: ["Blood group", "Employees"], rows: blood.map((d) => [d.name, d.value]) }} delay={80} />}
+        </div>
+      )}
     </>
   );
 }

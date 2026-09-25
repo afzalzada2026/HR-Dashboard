@@ -85,6 +85,44 @@ const PROVINCE_ALIASES: Record<string, string[]> = {
   Zabul: ["zabul", "zabol"],
 };
 
+/** Canonical Dari/Pashto spellings commonly found in Afghan HRIS exports. */
+const NATIVE_PROVINCE_ALIASES: Record<string, string[]> = {
+  Badakhshan: ["بدخشان"],
+  Badghis: ["بادغیس"],
+  Baghlan: ["بغلان"],
+  Balkh: ["بلخ"],
+  Bamyan: ["بامیان", "باميان"],
+  Daykundi: ["دایکندی", "دايکندی", "دایکندي"],
+  Farah: ["فراه"],
+  Faryab: ["فاریاب", "فارياب"],
+  Ghazni: ["غزنی", "غزني"],
+  Ghor: ["غور"],
+  Helmand: ["هلمند"],
+  Herat: ["هرات"],
+  Jowzjan: ["جوزجان"],
+  Kabul: ["کابل", "كابل"],
+  Kandahar: ["قندهار"],
+  Kapisa: ["کاپیسا", "كاپيسا"],
+  Khost: ["خوست"],
+  Kunar: ["کنر", "كونر"],
+  Kunduz: ["کندز", "قندوز", "كندز"],
+  Laghman: ["لغمان"],
+  Logar: ["لوگر", "لوګر"],
+  Nangarhar: ["ننگرهار", "ننګرهار"],
+  Nimroz: ["نیمروز", "نيمروز"],
+  Nuristan: ["نورستان"],
+  Paktia: ["پکتیا", "پکتيا"],
+  Paktika: ["پکتیکا", "پکتيکا"],
+  Panjshir: ["پنجشیر", "پنجشير"],
+  Parwan: ["پروان"],
+  Samangan: ["سمنگان"],
+  "Sar-e-Pul": ["سرپل", "سر پل", "سرپول", "سر پول"],
+  Takhar: ["تخار"],
+  Uruzgan: ["ارزگان", "اروزگان", "روزگان"],
+  Wardak: ["وردک", "میدان وردک", "ميدان وردك"],
+  Zabul: ["زابل"],
+};
+
 /** City / duty-station aliases → [province, lng, lat] */
 const CITY_DATA: Record<string, [string, number, number]> = {
   kabul: ["Kabul", 69.208, 34.555],
@@ -155,9 +193,13 @@ const CITY_DATA: Record<string, [string, number, number]> = {
 
 export function normPlace(v: string): string {
   return v
+    .normalize("NFKC")
     .toLowerCase()
+    .replace(/[\u200c\u200d\u064b-\u065f\u0670]/g, "")
+    .replace(/ي/g, "ی")
+    .replace(/ك/g, "ک")
     .replace(/\b(province|wilayat|velayat|city|office|district|hq|headquarters|main|branch|regional)\b/g, " ")
-    .replace(/[^a-z]+/g, " ")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -165,7 +207,7 @@ export function normPlace(v: string): string {
 const ALIAS_INDEX = new Map<string, string>();
 for (const [name, aliases] of Object.entries(PROVINCE_ALIASES)) {
   ALIAS_INDEX.set(normPlace(name), name);
-  for (const a of aliases) ALIAS_INDEX.set(normPlace(a), name);
+  for (const a of [...aliases, ...(NATIVE_PROVINCE_ALIASES[name] ?? [])]) ALIAS_INDEX.set(normPlace(a), name);
 }
 const ALIAS_LIST = [...ALIAS_INDEX.entries()].sort((a, b) => b[0].length - a[0].length);
 const CITY_LIST = Object.entries(CITY_DATA).sort((a, b) => b[0].length - a[0].length);
@@ -195,4 +237,41 @@ export function stationCoord(station: string, province?: string): [number, numbe
   }
   const p = province && PROVINCE_INFO[province];
   return p ? p.coord : null;
+}
+
+export interface ProvinceCoverage {
+  valid: boolean;
+  expected: number;
+  received: number;
+  missing: string[];
+  unexpected: string[];
+  duplicates: string[];
+}
+
+/** Verifies that map feature names and the canonical HR province dictionary are a 1:1 match. */
+export function validateProvinceCoverage(featureNames: string[]): ProvinceCoverage {
+  const canonical = new Set(PROVINCES.map((province) => province.name));
+  const counts = new Map<string, number>();
+  for (const name of featureNames) counts.set(name, (counts.get(name) ?? 0) + 1);
+  const received = new Set(featureNames);
+  const missing = [...canonical].filter((name) => !received.has(name)).sort();
+  const unexpected = [...received].filter((name) => !canonical.has(name)).sort();
+  const duplicates = [...counts].filter(([, count]) => count > 1).map(([name]) => name).sort();
+  return { valid: missing.length === 0 && unexpected.length === 0 && duplicates.length === 0 && featureNames.length === canonical.size, expected: canonical.size, received: featureNames.length, missing, unexpected, duplicates };
+}
+
+export interface EmployeeMapCoverage {
+  total: number;
+  mapped: number;
+  unknown: number;
+  invalidCanonical: string[];
+  coverage: number;
+}
+
+/** Checks normalized employee province values before they are supplied to ECharts. */
+export function validateEmployeeMapCoverage(provinces: string[]): EmployeeMapCoverage {
+  const canonical = new Set(PROVINCES.map((province) => province.name));
+  const invalidCanonical = [...new Set(provinces.filter((province) => province !== "Unknown" && !canonical.has(province)))].sort();
+  const mapped = provinces.filter((province) => canonical.has(province)).length;
+  return { total: provinces.length, mapped, unknown: provinces.length - mapped, invalidCanonical, coverage: provinces.length ? mapped / provinces.length : 1 };
 }

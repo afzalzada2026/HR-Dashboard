@@ -4,6 +4,7 @@ import { FIELD_DEFS } from "./fields";
 import { fmtDate, fmtNum, fmtPct, fmtYears, downloadBlob, downloadDataUrl, slugify, timestampSlug } from "./format";
 import { executiveSummary, generateInsights } from "./insights";
 import type { Employee } from "./types";
+import { safeSpreadsheetValue } from "./validation";
 
 export interface ExportColumn {
   key: string;
@@ -48,7 +49,7 @@ export const EMPLOYEE_COLUMNS: ExportColumn[] = [
 
 export async function exportCSV(emps: Employee[], cols: ExportColumn[], filename: string): Promise<void> {
   const Papa = (await import("papaparse")).default;
-  const csv = Papa.unparse({ fields: cols.map((c) => c.label), data: emps.map((e) => cols.map((c) => c.get(e))) });
+  const csv = Papa.unparse({ fields: cols.map((c) => c.label), data: emps.map((e) => cols.map((c) => safeSpreadsheetValue(c.get(e)))) });
   downloadBlob(new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" }), filename);
 }
 
@@ -59,10 +60,10 @@ export interface SheetSpec {
 }
 
 export async function exportSheets(sheets: SheetSpec[], filename: string): Promise<void> {
-  const XLSX = await import("xlsx");
+  const XLSX = await import("@e965/xlsx");
   const wb = XLSX.utils.book_new();
   for (const s of sheets) {
-    const ws = XLSX.utils.aoa_to_sheet(s.rows);
+    const ws = XLSX.utils.aoa_to_sheet(s.rows.map((row) => row.map(safeSpreadsheetValue)));
     const widths = s.widths ?? (s.rows[0] ?? []).map((_, i) => Math.min(48, Math.max(10, ...s.rows.slice(0, 200).map((r) => String(r[i] ?? "").length + 2))));
     ws["!cols"] = widths.map((w) => ({ wch: w }));
     XLSX.utils.book_append_sheet(wb, ws, s.name.slice(0, 31));

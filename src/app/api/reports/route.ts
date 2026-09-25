@@ -21,9 +21,11 @@ function serializeReport(r: typeof scheduledReports.$inferSelect) {
   };
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     await ensureSchema();
+    const session = getSession(req);
+    if (!can(session.role, "manage_reports")) return deny("manage_reports");
     const rows = await db.select().from(scheduledReports).orderBy(desc(scheduledReports.createdAt));
     return Response.json({ reports: rows.map(serializeReport) });
   } catch (err) {

@@ -26,22 +26,21 @@ const SEV: Record<Severity, { tone: "success" | "accent" | "warning" | "danger";
 };
 const SUGGESTIONS = ["How many female employees in Operations?", "Average age in Kabul", "Largest department in Technology", "How many expats?", "Retirement risk in Finance", "Average tenure of Software Engineering"];
 
-function useTypewriter(text: string, run: number) {
-  const [n, setN] = useState(0);
+function TypewriterText({ text }: { text: string }) {
+  const [length, setLength] = useState(0);
   useEffect(() => {
-    setN(0);
-    const id = setInterval(() => {
-      setN((v) => {
-        if (v >= text.length) {
-          clearInterval(id);
-          return v;
+    const id = window.setInterval(() => {
+      setLength((value) => {
+        if (value >= text.length) {
+          window.clearInterval(id);
+          return value;
         }
-        return v + 4;
+        return Math.min(text.length, value + 4);
       });
     }, 14);
-    return () => clearInterval(id);
-  }, [text, run]);
-  return { shown: text.slice(0, n), done: n >= text.length };
+    return () => window.clearInterval(id);
+  }, [text]);
+  return <span className={cn(length < text.length && "caret")}>{text.slice(0, length)}</span>;
 }
 
 function InsightsInner() {
@@ -57,7 +56,6 @@ function InsightsInner() {
 
   const insights = useMemo(() => memo(filtered, "insights", () => generateInsights(filtered, now)), [filtered, now]);
   const summary = useMemo(() => executiveSummary(filtered, now).join("\n\n"), [filtered, now]);
-  const { shown, done } = useTypewriter(summary, run);
   const divs = useMemo(() => groupStats(filtered, (e) => e.division, now), [filtered, now]);
   const cats = ["All", ...Array.from(new Set(insights.map((i) => i.category)))];
   const visible = cat === "All" ? insights : insights.filter((i) => i.category === cat);
@@ -118,7 +116,7 @@ function InsightsInner() {
                 <Spinner /> Analysing workforce patterns…
               </span>
             ) : (
-              <span className={cn(!done && "caret")}>{shown}</span>
+              <TypewriterText key={`${run}:${summary}`} text={summary} />
             )}
           </div>
         </section>

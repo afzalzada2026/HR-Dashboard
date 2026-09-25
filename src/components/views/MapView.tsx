@@ -6,7 +6,7 @@ import { useMemo, useState } from "react";
 import { countBy, groupStats, type ProvinceStat, provinceStats } from "@/lib/analytics";
 import { applyFilters } from "@/lib/filters";
 import { cn, fmtNum, fmtPct } from "@/lib/format";
-import { PROVINCE_INFO, PROVINCES, stationCoord } from "@/lib/geo";
+import { PROVINCE_INFO, PROVINCES, stationCoord, validateEmployeeMapCoverage } from "@/lib/geo";
 import { useDataStore } from "@/store/data";
 import { ChartCard } from "../charts/ChartCard";
 import { mapOption } from "../charts/options";
@@ -122,6 +122,7 @@ function MapInner() {
 
   const base = useMemo(() => applyFilters(employees, { ...filters, province: [] }), [employees, filters]);
   const stats = useMemo(() => provinceStats(base), [base]);
+  const coverage = useMemo(() => validateEmployeeMapCoverage(base.map((employee) => employee.province)), [base]);
   const ranked = useMemo(() => [...stats.values()].filter((s) => s.name !== "Unknown").sort((a, b) => b.headcount - a.headcount), [stats]);
   const current = picked ?? filters.province[0] ?? ranked[0]?.name ?? null;
   const m = METRICS.find((x) => x.value === metric) ?? METRICS[0];
@@ -144,7 +145,7 @@ function MapInner() {
         eyebrow="Geospatial Workforce Intelligence"
         title="Afghanistan employee map"
         icon={<MapPinned />}
-        subtitle={`${ranked.length} of 34 provinces staffed · ${fmtNum(base.length)} employees in scope${unknown ? ` · ${fmtNum(unknown)} unmapped` : ""}`}
+        subtitle={`${ranked.length} of 34 provinces staffed · ${fmtNum(coverage.mapped)}/${fmtNum(coverage.total)} employees mapped (${fmtPct(coverage.coverage * 100)})${unknown ? ` · ${fmtNum(unknown)} unmatched` : ""}`}
         actions={
           <>
             <Segmented value={metric} onChange={setMetric} options={METRICS.map((x) => ({ value: x.value, label: x.label }))} />
