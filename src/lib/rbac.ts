@@ -35,7 +35,7 @@ export function can(role: Role, perm: Permission): boolean {
 }
 
 export const DEMO_USERS: Session[] = [
-  { userId: "u-admin", name: "Mariam Karimi", email: "mariam.karimi@atoma.af", role: "hr_admin" },
+  { userId: "u-admin", name: "Mohibullah Afzalzada", email: "mafzalzada@atoma.com.af", role: "hr_admin" },
   { userId: "u-officer", name: "Farid Ahmadzai", email: "farid.ahmadzai@atoma.af", role: "hr_officer" },
   { userId: "u-exec", name: "Hamid Sultani", email: "hamid.sultani@atoma.af", role: "executive" },
   { userId: "u-divmgr", name: "Nasir Popal", email: "nasir.popal@atoma.af", role: "division_manager", division: "Operations" },
