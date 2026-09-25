@@ -3,6 +3,7 @@ import { and, count, desc, eq, ilike, or, type SQL } from "drizzle-orm";
 import { db } from "@/db";
 import { ensureSchema } from "@/db/ensure";
 import { auditLogs } from "@/db/schema";
+import { localOnlyApiDisabled } from "@/lib/mode";
 import { can } from "@/lib/rbac";
 import { deny, getSession, serverError, writeAudit } from "@/lib/server";
 import { safeText } from "@/lib/validation";
@@ -10,6 +11,8 @@ import { safeText } from "@/lib/validation";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
+  const disabled = localOnlyApiDisabled();
+  if (disabled) return disabled;
   try {
     await ensureSchema();
     const session = getSession(req);
@@ -43,6 +46,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const disabled = localOnlyApiDisabled();
+  if (disabled) return disabled;
   try {
     await ensureSchema();
     const session = getSession(req);

@@ -3,7 +3,9 @@
 import { Check, Cloud, Database, EyeOff, FileClock, HardDrive, KeyRound, Lock, LockKeyhole, RefreshCw, Search, ShieldCheck, UserCheck, Users, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { cn, fmtDateTime, fmtNum } from "@/lib/format";
+import { LOCAL_ONLY } from "@/lib/mode";
 import { can, DEMO_USERS, PERMISSIONS, ROLE_ORDER, ROLE_PERMISSIONS, ROLES } from "@/lib/rbac";
+import { listLocalReports, localAdapter, queryLocalAudit } from "@/lib/storage";
 import type { AuditLog } from "@/lib/types";
 import { useDataStore } from "@/store/data";
 import { useUIStore } from "@/store/ui";
@@ -32,13 +34,17 @@ function AuditTable() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const p = new URLSearchParams({ limit: String(size), offset: String(page * size) });
-      if (q.trim()) p.set("q", q.trim());
-      if (cat) p.set("category", cat);
-      const res = await fetch(`/api/audit?${p.toString()}`, { cache: "no-store" });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Failed to load audit logs");
-      setData(json);
+      if (LOCAL_ONLY) {
+        setData(await queryLocalAudit({ q, category: cat, limit: size, offset: page * size }));
+      } else {
+        const p = new URLSearchParams({ limit: String(size), offset: String(page * size) });
+        if (q.trim()) p.set("q", q.trim());
+        if (cat) p.set("category", cat);
+        const res = await fetch(`/api/audit?${p.toString()}`, { cache: "no-store" });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || "Failed to load audit logs");
+        setData(json);
+      }
       setErr("");
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Unavailable");
@@ -64,8 +70,8 @@ function AuditTable() {
     <Card className="animate-fade-up">
       <CardTitle
         icon={<FileClock />}
-        title="Audit logs"
-        subtitle={err ? err : `${fmtNum(data?.total ?? 0)} events · uploads, deletions, exports, sign-ins, role switches & schedules`}
+        title={LOCAL_ONLY ? "Local activity history" : "Audit logs"}
+        subtitle={err ? err : `${fmtNum(data?.total ?? 0)} events · ${LOCAL_ONLY ? "stored only in this browser" : "uploads, deletions, exports, sign-ins, role switches & schedules"}`}
         actions={
           <Button size="icon-sm" variant="ghost" onClick={() => load()} aria-label="Refresh audit logs">
             {loading ? <Spinner /> : <RefreshCw />}
@@ -151,23 +157,38 @@ export default function SecurityView() {
   const records = useDataStore((s) => s.employees.length);
   const [sys, setSys] = useState<SystemInfo | null>(null);
   useEffect(() => {
+    if (LOCAL_ONLY) {
+      Promise.all([localAdapter.list(), queryLocalAudit({ limit: 1 }), listLocalReports()])
+        .then(([datasets, audit, reports]) => setSys({ database: "browser-only", azure: { configured: false, tenantId: null, clientId: null }, counts: { datasets: datasets.length, auditLogs: audit.total, reports: reports.length } }))
+        .catch(() => setSys(null));
+      return;
+    }
     fetch("/api/system", { cache: "no-store" })
       .then((r) => r.json())
       .then(setSys)
       .catch(() => setSys(null));
   }, []);
   const role = ROLES[session.role];
-  const policies = [
-    { icon: <Users />, title: "Row-level security", desc: "Division Managers only receive employees of their own division — enforced in the API and the client." },
-    { icon: <EyeOff />, title: "PII masking", desc: "Viewers see masked phone, email, Tazkira, date of birth and blood group values." },
-    { icon: <FileClock />, title: "Immutable audit trail", desc: "Uploads, deletions, exports, profile downloads, sign-ins and schedule changes are logged with user, role and IP." },
-    { icon: <LockKeyhole />, title: "Permission-gated APIs", desc: "Every mutating endpoint validates the caller's role before touching PostgreSQL." },
-    { icon: <HardDrive />, title: "Local (no server) mode", desc: "Client-side version keeps datasets exclusively in this browser's IndexedDB." },
-    { icon: <KeyRound />, title: "Azure AD / Entra ID SSO", desc: "Enterprise sign-in with Microsoft identities; demo tenant accounts are provided here." },
-  ];
+  const policies = LOCAL_ONLY
+    ? [
+        { icon: <HardDrive />, title: "Browser-only storage", desc: "Employee rows, datasets, audit events and report reminders remain in IndexedDB on this device." },
+        { icon: <LockKeyhole />, title: "No employee upload", desc: "The app makes no employee-data API requests. Excel/CSV parsing and analytics run in the browser." },
+        { icon: <EyeOff />, title: "Local privacy", desc: "No cloud database, external analytics SDK or AI service receives the workforce file." },
+        { icon: <FileClock />, title: "Local activity history", desc: "Uploads, exports and profile actions are recorded only in this browser and disappear when site data is cleared." },
+        { icon: <Users />, title: "Local profiles", desc: "Profiles demonstrate role views but are not authentication; anyone with device access can change profile." },
+        { icon: <KeyRound />, title: "Device responsibility", desc: "Use disk encryption, a protected OS account and an approved browser profile for confidential HR data." },
+      ]
+    : [
+        { icon: <Users />, title: "Row-level security", desc: "Division Managers only receive employees of their own division — enforced in the API and the client." },
+        { icon: <EyeOff />, title: "PII masking", desc: "Viewers see masked phone, email, Tazkira, date of birth and blood group values." },
+        { icon: <FileClock />, title: "Immutable audit trail", desc: "Uploads, deletions, exports, profile downloads, sign-ins and schedule changes are logged with user, role and IP." },
+        { icon: <LockKeyhole />, title: "Permission-gated APIs", desc: "Every mutating endpoint validates the caller's role before touching PostgreSQL." },
+        { icon: <HardDrive />, title: "Local (no server) mode", desc: "Client-side version keeps datasets exclusively in this browser's IndexedDB." },
+        { icon: <KeyRound />, title: "Azure AD / Entra ID SSO", desc: "Enterprise sign-in with Microsoft identities." },
+      ];
   return (
     <>
-      <PageHeader eyebrow="Administration" title="Security & audit" icon={<ShieldCheck />} subtitle="Azure AD sign-in, role-based access control, permission policies and audit logging" />
+      <PageHeader eyebrow="Administration" title="Privacy, profiles & local audit" icon={<ShieldCheck />} subtitle={LOCAL_ONLY ? "Browser-only operation: no employee data is transmitted to a server" : "Azure AD sign-in, role-based access control, permission policies and audit logging"} />
       <div className="grid gap-4 xl:grid-cols-3">
         <Card className="animate-fade-up">
           <CardTitle icon={<UserCheck />} title="Current session" />
@@ -204,37 +225,34 @@ export default function SecurityView() {
           </div>
         </Card>
         <Card className="animate-fade-up">
-          <CardTitle icon={<KeyRound />} title="Azure AD (Microsoft Entra ID)" />
+          <CardTitle icon={LOCAL_ONLY ? <HardDrive /> : <KeyRound />} title={LOCAL_ONLY ? "Local browser vault" : "Azure AD (Microsoft Entra ID)"} />
           <div className="flex items-center gap-3 rounded-xl border border-line p-3">
-            <svg viewBox="0 0 23 23" className="h-8 w-8" aria-hidden>
-              <path fill="#f35325" d="M1 1h10v10H1z" />
-              <path fill="#81bc06" d="M12 1h10v10H12z" />
-              <path fill="#05a6f0" d="M1 12h10v10H1z" />
-              <path fill="#ffba08" d="M12 12h10v10H12z" />
-            </svg>
+            {LOCAL_ONLY ? (
+              <span className="grid h-9 w-9 place-items-center rounded-xl bg-success/12 text-success"><HardDrive className="h-5 w-5" /></span>
+            ) : (
+              <svg viewBox="0 0 23 23" className="h-8 w-8" aria-hidden><path fill="#f35325" d="M1 1h10v10H1z" /><path fill="#81bc06" d="M12 1h10v10H12z" /><path fill="#05a6f0" d="M1 12h10v10H1z" /><path fill="#ffba08" d="M12 12h10v10H12z" /></svg>
+            )}
             <div>
-              <p className="text-[13px] font-semibold text-fg">{sys?.azure.configured ? "SSO configured" : "Demo SSO mode"}</p>
-              <p className="text-[11.5px] text-muted">{sys?.azure.configured ? `Tenant ${sys.azure.tenantId} · Client ${sys.azure.clientId}` : "Set AZURE_AD_TENANT_ID & AZURE_AD_CLIENT_ID to enable production sign-in."}</p>
+              <p className="text-[13px] font-semibold text-fg">{LOCAL_ONLY ? "IndexedDB on this device" : sys?.azure.configured ? "SSO configured" : "Demo SSO mode"}</p>
+              <p className="text-[11.5px] text-muted">{LOCAL_ONLY ? "No PostgreSQL connection or employee-data API is used." : sys?.azure.configured ? `Tenant ${sys.azure.tenantId} · Client ${sys.azure.clientId}` : "Configure the documented Entra production proxy to enable SSO."}</p>
             </div>
           </div>
           <div className="mt-3 space-y-1.5 text-[12px]">
             {[
-              ["Database", sys ? (sys.database === "connected" ? "Connected" : "Unavailable") : "Checking…", sys?.database === "connected"],
+              [LOCAL_ONLY ? "Storage" : "Database", LOCAL_ONLY ? "Browser only" : sys ? (sys.database === "connected" ? "Connected" : "Unavailable") : "Checking…", LOCAL_ONLY || sys?.database === "connected"],
               ["Stored datasets", sys?.counts ? fmtNum(sys.counts.datasets) : "—", true],
-              ["Audit events", sys?.counts ? fmtNum(sys.counts.auditLogs) : "—", true],
-              ["Scheduled reports", sys?.counts ? fmtNum(sys.counts.reports) : "—", true],
-            ].map(([l, v, ok]) => (
-              <div key={String(l)} className="flex items-center justify-between rounded-lg bg-surface-muted px-2.5 py-1.5">
-                <span className="flex items-center gap-1.5 text-muted">
-                  <Database className="h-3.5 w-3.5" /> {l}
-                </span>
-                <span className={cn("font-semibold", ok ? "text-fg" : "text-danger")}>{v}</span>
+              ["Local audit events", sys?.counts ? fmtNum(sys.counts.auditLogs) : "—", true],
+              ["Report reminders", sys?.counts ? fmtNum(sys.counts.reports) : "—", true],
+            ].map(([label, value, ok]) => (
+              <div key={String(label)} className="flex items-center justify-between rounded-lg bg-surface-muted px-2.5 py-1.5">
+                <span className="flex items-center gap-1.5 text-muted"><Database className="h-3.5 w-3.5" /> {label}</span>
+                <span className={cn("font-semibold", ok ? "text-fg" : "text-danger")}>{value}</span>
               </div>
             ))}
           </div>
         </Card>
         <Card className="animate-fade-up">
-          <CardTitle icon={<Users />} title="Switch account" subtitle="Demo tenant — one account per role" />
+          <CardTitle icon={<Users />} title={LOCAL_ONLY ? "Switch local profile" : "Switch account"} subtitle={LOCAL_ONLY ? "Convenience profiles only — not authentication" : "Demo tenant — one account per role"} />
           <div className="space-y-1.5">
             {DEMO_USERS.map((u) => (
               <button key={u.userId} type="button" onClick={() => switchAccount(u)} className={cn("flex w-full items-center gap-2.5 rounded-xl border px-2.5 py-2 text-left transition-colors", u.userId === session.userId ? "border-accent/50 bg-accent/8" : "border-line hover:bg-surface-muted")}>

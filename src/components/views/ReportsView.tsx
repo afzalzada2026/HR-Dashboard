@@ -7,8 +7,10 @@ import { EMPLOYEE_COLUMNS, exportCSV, exportExecutivePDF, exportWorkbook } from 
 import { describeFilters } from "@/lib/filters";
 import { cn, fmtDate, fmtDateTime, fmtNum, fmtPct, timestampSlug } from "@/lib/format";
 import { executiveSummary } from "@/lib/insights";
+import { LOCAL_ONLY } from "@/lib/mode";
 import { can, ROLES } from "@/lib/rbac";
 import { computeNextRun, describeSchedule, type Frequency, WEEKDAYS } from "@/lib/schedule";
+import { createLocalReport, deleteLocalReport, listLocalReports, queryLocalAudit, updateLocalReport } from "@/lib/storage";
 import type { AuditLog, ScheduledReport } from "@/lib/types";
 import { useDataStore } from "@/store/data";
 import { useUIStore } from "@/store/ui";
@@ -103,7 +105,8 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 function Scheduler() {
-  const role = useUIStore((s) => s.session.role);
+  const session = useUIStore((s) => s.session);
+  const role = session.role;
   const notify = useUIStore((s) => s.notify);
   const allowed = can(role, "manage_reports");
   const [reports, setReports] = useState<ScheduledReport[] | null>(null);
@@ -113,7 +116,7 @@ function Scheduler() {
 
   const load = useCallback(async () => {
     try {
-      setReports((await api<{ reports: ScheduledReport[] }>("/api/reports")).reports);
+      setReports(LOCAL_ONLY ? await listLocalReports() : (await api<{ reports: ScheduledReport[] }>("/api/reports")).reports);
       setError("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unavailable");
@@ -128,8 +131,12 @@ function Scheduler() {
     e.preventDefault();
     setSaving(true);
     try {
-      await api("/api/reports", { method: "POST", body: JSON.stringify(form) });
-      notify("success", "Report scheduled", `${form.name} · ${describeSchedule(form.frequency, form.timeOfDay, form.dayOfWeek, form.dayOfMonth)}`);
+      if (LOCAL_ONLY) {
+        await createLocalReport({ ...form, format: form.format as ScheduledReport["format"], createdBy: session.name });
+      } else {
+        await api("/api/reports", { method: "POST", body: JSON.stringify(form) });
+      }
+      notify("success", LOCAL_ONLY ? "Local report reminder saved" : "Report scheduled", `${form.name} · ${describeSchedule(form.frequency, form.timeOfDay, form.dayOfWeek, form.dayOfMonth)}`);
       await load();
     } catch (err) {
       notify("error", "Could not schedule report", err instanceof Error ? err.message : undefined);
@@ -147,8 +154,9 @@ function Scheduler() {
       else if (r.format === "xlsx") await exportWorkbook(ctx);
       else if (r.format === "csv") await exportCSV(data.filtered, EMPLOYEE_COLUMNS, `atoma-${timestampSlug()}.csv`);
       else await runExport("png", r.name, "report-preview");
-      await api(`/api/reports/${r.id}`, { method: "PATCH", body: JSON.stringify({ run: true }) });
-      notify("success", "Report generated", `${r.name} delivered to ${r.recipients || "your downloads"} (simulated email delivery).`);
+      if (LOCAL_ONLY) await updateLocalReport(r.id, { run: true });
+      else await api(`/api/reports/${r.id}`, { method: "PATCH", body: JSON.stringify({ run: true }) });
+      notify("success", "Report generated", LOCAL_ONLY ? `${r.name} was generated locally and downloaded by your browser.` : `${r.name} delivered to ${r.recipients || "your downloads"} (simulated email delivery).`);
       await load();
     } catch (err) {
       notify("error", "Run failed", err instanceof Error ? err.message : undefined);
@@ -156,7 +164,8 @@ function Scheduler() {
   };
   const setActive = async (r: ScheduledReport, v: boolean) => {
     try {
-      await api(`/api/reports/${r.id}`, { method: "PATCH", body: JSON.stringify({ isActive: v }) });
+      if (LOCAL_ONLY) await updateLocalReport(r.id, { isActive: v });
+      else await api(`/api/reports/${r.id}`, { method: "PATCH", body: JSON.stringify({ isActive: v }) });
       await load();
     } catch (err) {
       notify("error", "Update failed", err instanceof Error ? err.message : undefined);
@@ -164,7 +173,8 @@ function Scheduler() {
   };
   const remove = async (r: ScheduledReport) => {
     try {
-      await api(`/api/reports/${r.id}`, { method: "DELETE" });
+      if (LOCAL_ONLY) await deleteLocalReport(r.id);
+      else await api(`/api/reports/${r.id}`, { method: "DELETE" });
       notify("info", "Schedule removed", r.name);
       await load();
     } catch (err) {
@@ -176,7 +186,7 @@ function Scheduler() {
   return (
     <div className="grid gap-4 xl:grid-cols-5">
       <Card className="animate-fade-up xl:col-span-2">
-        <CardTitle icon={<CalendarClock />} title="Schedule a report" subtitle="Automated daily, weekly or monthly delivery" />
+        <CardTitle icon={<CalendarClock />} title={LOCAL_ONLY ? "Save a local report reminder" : "Schedule a report"} subtitle={LOCAL_ONLY ? "Stored in this browser; use Run now to generate. No background server or email." : "Automated daily, weekly or monthly delivery"} />
         <form onSubmit={submit} className="space-y-3">
           <div>
             <label className="text-[11px] font-semibold text-muted uppercase">Report name</label>
@@ -222,8 +232,8 @@ function Scheduler() {
             </div>
           </div>
           <div>
-            <label className="text-[11px] font-semibold text-muted uppercase">Recipients</label>
-            <input className="field mt-1" value={form.recipients} onChange={(e) => setForm({ ...form, recipients: e.target.value })} placeholder="name@atoma.af, …" disabled={!allowed} />
+            <label className="text-[11px] font-semibold text-muted uppercase">{LOCAL_ONLY ? "Optional reminder note" : "Recipients"}</label>
+            <input className="field mt-1" value={form.recipients} onChange={(e) => setForm({ ...form, recipients: e.target.value })} placeholder={LOCAL_ONLY ? "e.g. Share with leadership" : "name@atoma.af, …"} disabled={!allowed} />
           </div>
           <div>
             <label className="text-[11px] font-semibold text-muted uppercase">Sections</label>
@@ -247,7 +257,7 @@ function Scheduler() {
         </form>
       </Card>
       <Card className="animate-fade-up xl:col-span-3">
-        <CardTitle icon={<Mail />} title="Scheduled reports" subtitle={error ? `Server scheduling unavailable: ${error}` : "Stored in PostgreSQL · delivery simulated in this environment"} />
+        <CardTitle icon={<Mail />} title={LOCAL_ONLY ? "Local report reminders" : "Scheduled reports"} subtitle={error ? `Scheduling unavailable: ${error}` : LOCAL_ONLY ? "Stored only in this browser · no background execution or network delivery" : "Stored in PostgreSQL · delivery simulated in this environment"} />
         {reports === null ? (
           <div className="flex items-center gap-2 text-sm text-muted">
             <Spinner /> Loading schedules…
@@ -262,7 +272,7 @@ function Scheduler() {
                   <div className="min-w-0">
                     <p className="truncate text-[13px] font-semibold text-fg">{r.name}</p>
                     <p className="text-[11.5px] text-muted">
-                      {describeSchedule(r.frequency, r.timeOfDay, r.dayOfWeek, r.dayOfMonth)} · {r.recipients || "no recipients"}
+                      {describeSchedule(r.frequency, r.timeOfDay, r.dayOfWeek, r.dayOfMonth)} · {LOCAL_ONLY ? r.recipients || "local reminder" : r.recipients || "no recipients"}
                     </p>
                   </div>
                   <div className="flex items-center gap-1.5">
@@ -297,14 +307,13 @@ function ExportHistory() {
   const [logs, setLogs] = useState<AuditLog[] | null>(null);
   useEffect(() => {
     if (!can(role, "view_audit")) return;
-    api<{ logs: AuditLog[] }>("/api/audit?category=export&limit=8")
-      .then((r) => setLogs(r.logs))
-      .catch(() => setLogs([]));
+    const request = LOCAL_ONLY ? queryLocalAudit({ category: "export", limit: 8 }) : api<{ logs: AuditLog[] }>("/api/audit?category=export&limit=8");
+    request.then((result) => setLogs(result.logs)).catch(() => setLogs([]));
   }, [role]);
   if (!can(role, "view_audit")) return null;
   return (
     <Card className="animate-fade-up mt-4">
-      <CardTitle icon={<History />} title="Recent exports" subtitle="From the platform audit trail" />
+      <CardTitle icon={<History />} title="Recent exports" subtitle={LOCAL_ONLY ? "Stored only in this browser" : "From the platform audit trail"} />
       {!logs ? (
         <Spinner />
       ) : logs.length === 0 ? (
@@ -345,7 +354,7 @@ function ReportsInner() {
   ];
   return (
     <>
-      <PageHeader eyebrow="Executive Reporting" title="Reports & exports" icon={<FileText />} subtitle="Board-ready outputs in PDF, Excel, CSV and PNG — plus automated scheduled delivery" />
+      <PageHeader eyebrow="Executive Reporting" title="Reports & exports" icon={<FileText />} subtitle={LOCAL_ONLY ? "Board-ready PDF, Excel, CSV and PNG generated entirely in your browser" : "Board-ready outputs in PDF, Excel, CSV and PNG — plus automated scheduled delivery"} />
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3" data-no-capture="true">
         {exportsList.map((x, i) => (
           <button

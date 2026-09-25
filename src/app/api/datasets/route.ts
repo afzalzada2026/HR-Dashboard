@@ -3,6 +3,7 @@ import { desc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { ensureSchema } from "@/db/ensure";
 import { datasetRecords, datasets } from "@/db/schema";
+import { localOnlyApiDisabled } from "@/lib/mode";
 import { can } from "@/lib/rbac";
 import { deny, getSession, serverError, toMeta, writeAudit } from "@/lib/server";
 import { sanitizeDatasetPayload } from "@/lib/validation";
@@ -10,6 +11,8 @@ import { sanitizeDatasetPayload } from "@/lib/validation";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
+  const disabled = localOnlyApiDisabled();
+  if (disabled) return disabled;
   try {
     await ensureSchema();
     const session = getSession(req);
@@ -22,6 +25,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const disabled = localOnlyApiDisabled();
+  if (disabled) return disabled;
   try {
     await ensureSchema();
     const session = getSession(req);

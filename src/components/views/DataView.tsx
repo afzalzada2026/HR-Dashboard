@@ -8,6 +8,7 @@ import { type DragEvent, useCallback, useEffect, useMemo, useRef, useState } fro
 import { downloadTemplate, EMPLOYEE_COLUMNS, exportEmployeesXLSX } from "@/lib/exporters";
 import { FIELD_DEFS, FIELD_LABEL } from "@/lib/fields";
 import { cn, fmtBytes, fmtDateTime, fmtNum, fmtPct, slugify } from "@/lib/format";
+import { LOCAL_ONLY } from "@/lib/mode";
 import { autoMap, tableFromMatrix } from "@/lib/mapping";
 import { normalizeRows } from "@/lib/normalize";
 import { can, ROLES } from "@/lib/rbac";
@@ -490,8 +491,14 @@ export default function DataView() {
         eyebrow="Administration"
         title="Data sources"
         icon={<Database />}
-        subtitle="Import Excel / CSV, auto-map HR columns, validate quality and manage stored datasets"
-        actions={<Segmented value={mode} onChange={switchMode} options={[{ value: "server", label: "Enterprise · PostgreSQL", icon: <Cloud /> }, { value: "local", label: "Local · No server", icon: <HardDrive /> }]} />}
+        subtitle={LOCAL_ONLY ? "Import Excel / CSV entirely in this browser. Employee data never leaves this device." : "Import Excel / CSV, auto-map HR columns, validate quality and manage stored datasets"}
+        actions={
+          LOCAL_ONLY ? (
+            <Badge tone="success"><HardDrive /> Browser-only · private on this device</Badge>
+          ) : (
+            <Segmented value={mode} onChange={switchMode} options={[{ value: "server", label: "Enterprise · PostgreSQL", icon: <Cloud /> }, { value: "local", label: "Local · No server", icon: <HardDrive /> }]} />
+          )
+        }
       />
       <div className="grid gap-4 xl:grid-cols-3">
         <div className="space-y-4 xl:col-span-2">

@@ -9,6 +9,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { EMPLOYEE_COLUMNS, exportCSV, exportExecutivePDF, exportPNG, exportSnapshot, exportViewPDF, exportWorkbook } from "@/lib/exporters";
 import { activeFilterCount, describeFilters } from "@/lib/filters";
 import { cn, fmtDateTime, timestampSlug } from "@/lib/format";
+import { LOCAL_ONLY } from "@/lib/mode";
 import { can, DEMO_USERS, ROLES } from "@/lib/rbac";
 import { logAudit } from "@/lib/storage";
 import type { Session, Theme } from "@/lib/types";
@@ -321,7 +322,7 @@ function UserMenu() {
           </span>
         </div>
       </div>
-      <p className="px-2.5 pt-2.5 pb-1 text-[10px] font-semibold tracking-wider text-subtle uppercase">Switch account · Azure AD (demo)</p>
+      <p className="px-2.5 pt-2.5 pb-1 text-[10px] font-semibold tracking-wider text-subtle uppercase">{LOCAL_ONLY ? "Switch local profile" : "Switch account · Azure AD (demo)"}</p>
       {DEMO_USERS.map((u) => (
         <MenuItem
           key={u.userId}

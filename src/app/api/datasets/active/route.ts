@@ -3,6 +3,7 @@ import { desc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { ensureSchema } from "@/db/ensure";
 import { datasetRecords, datasets } from "@/db/schema";
+import { localOnlyApiDisabled } from "@/lib/mode";
 import { applyRowLevelSecurity, can } from "@/lib/rbac";
 import { deny, getSession, serverError, toMeta } from "@/lib/server";
 import type { Employee } from "@/lib/types";
@@ -10,6 +11,8 @@ import type { Employee } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
+  const disabled = localOnlyApiDisabled();
+  if (disabled) return disabled;
   try {
     await ensureSchema();
     const session = getSession(req);

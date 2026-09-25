@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { LOCAL_ONLY } from "@/lib/mode";
 import { DEFAULT_SESSION, encodeSession, SESSION_COOKIE } from "@/lib/rbac";
 import type { Session, StorageMode, Theme } from "@/lib/types";
 
@@ -53,7 +54,7 @@ let seq = 0;
 const nextId = () => Date.now() * 100 + (seq++ % 100);
 
 export function writeSessionCookie(s: Session): void {
-  if (typeof document === "undefined") return;
+  if (LOCAL_ONLY || typeof document === "undefined") return;
   document.cookie = `${SESSION_COOKIE}=${encodeSession(s)}; path=/; max-age=31536000; samesite=lax`;
 }
 
@@ -62,7 +63,7 @@ export const useUIStore = create<UIState>()(
     (set, get) => ({
       hydrated: false,
       theme: "light",
-      storageMode: "server",
+      storageMode: "local",
       session: DEFAULT_SESSION,
       sidebarCollapsed: false,
       mobileNavOpen: false,
@@ -73,7 +74,7 @@ export const useUIStore = create<UIState>()(
       notifications: [],
       hiddenWidgets: {},
       setTheme: (theme) => set({ theme }),
-      setStorageMode: (storageMode) => set({ storageMode }),
+      setStorageMode: (storageMode) => set({ storageMode: LOCAL_ONLY ? "local" : storageMode }),
       setSession: (session) => {
         writeSessionCookie(session);
         set({ session });
@@ -129,7 +130,7 @@ export const useUIStore = create<UIState>()(
         hiddenWidgets: s.hiddenWidgets,
       }),
       onRehydrateStorage: () => () => {
-        useUIStore.setState({ hydrated: true });
+        useUIStore.setState({ hydrated: true, ...(LOCAL_ONLY ? { storageMode: "local" as const } : {}) });
       },
     }
   )
