@@ -3,6 +3,7 @@
 import { ArrowLeft, BarChart3, Globe2, HardDrive, Lock, MapPinned, ShieldCheck, Sparkles, Users } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { LOCAL_ONLY } from "@/lib/mode";
 import { DEMO_USERS, ROLES } from "@/lib/rbac";
 import { logAudit } from "@/lib/storage";
 import type { Session } from "@/lib/types";
@@ -45,8 +46,8 @@ export default function LoginView() {
     const ui = useUIStore.getState();
     const session: Session = u.role === "division_manager" ? { ...u, division } : u;
     ui.setSession(session);
-    if (local) ui.setStorageMode("local");
-    logAudit("auth.signed_in", "security", `${session.name} signed in via ${local ? "local mode" : "Azure AD SSO (demo tenant)"} as ${ROLES[session.role].label}`);
+    if (LOCAL_ONLY || local) ui.setStorageMode("local");
+    logAudit("auth.signed_in", "security", `${session.name} selected ${LOCAL_ONLY || local ? "a local profile" : "Azure AD SSO (demo tenant)"} as ${ROLES[session.role].label}`);
     // The dashboard shell re-bootstraps on mount, applying the new role's row-level security.
     setTimeout(() => router.push("/"), 600);
   };
@@ -99,19 +100,19 @@ export default function LoginView() {
             <LogoMark />
             <span className="text-lg font-extrabold tracking-[0.2em] text-fg">ATOMA</span>
           </div>
-          <h2 className="text-2xl font-bold text-fg">Sign in</h2>
-          <p className="mt-1 text-sm text-muted">Use your ATOMA Microsoft work account to continue.</p>
+          <h2 className="text-2xl font-bold text-fg">{LOCAL_ONLY ? "Open your local workspace" : "Sign in"}</h2>
+          <p className="mt-1 text-sm text-muted">{LOCAL_ONLY ? "No account or internet connection is required. Your HR file stays in this browser." : "Use your ATOMA Microsoft work account to continue."}</p>
 
           {step === "start" && (
             <div className="mt-7 space-y-3">
               <button type="button" onClick={() => setStep("pick")} className="flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-line-strong bg-surface-solid text-[14px] font-semibold text-fg shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md">
-                <MicrosoftLogo /> Sign in with Microsoft
+                {LOCAL_ONLY ? <Users className="h-5 w-5 text-accent" /> : <MicrosoftLogo />} {LOCAL_ONLY ? "Choose a local profile" : "Sign in with Microsoft"}
               </button>
               <div className="flex items-center gap-3 py-1 text-[11px] text-subtle">
                 <span className="h-px flex-1 bg-line" /> or <span className="h-px flex-1 bg-line" />
               </div>
               <Button size="lg" className="w-full" onClick={() => signIn(DEMO_USERS[0], true)}>
-                <HardDrive /> Continue in local mode (no server)
+                <HardDrive /> {LOCAL_ONLY ? "Continue as HR Admin" : "Continue in local mode (no server)"}
               </Button>
               <div className="mt-4 grid grid-cols-3 gap-2 text-center text-[10.5px] text-muted">
                 <div className="rounded-lg bg-surface-muted p-2">
@@ -134,7 +135,7 @@ export default function LoginView() {
               <button type="button" onClick={() => setStep("start")} className="mb-3 inline-flex items-center gap-1 text-[12px] font-medium text-muted hover:text-fg">
                 <ArrowLeft className="h-3.5 w-3.5" /> Back
               </button>
-              <p className="mb-2 text-[12px] font-semibold text-muted">Pick an account · atoma.af demo tenant</p>
+              <p className="mb-2 text-[12px] font-semibold text-muted">{LOCAL_ONLY ? "Choose a local access profile (stored only on this device)" : "Pick an account · atoma.af demo tenant"}</p>
               <div className="space-y-2">
                 {DEMO_USERS.map((u) => (
                   <div key={u.userId} className="rounded-xl border border-line transition-colors hover:border-accent/50">
@@ -174,7 +175,7 @@ export default function LoginView() {
             </div>
           )}
 
-          <p className="mt-8 text-[11px] leading-relaxed text-subtle">Azure AD / Microsoft Entra ID sign-in runs against a demo tenant in this environment. Configure AZURE_AD_TENANT_ID and AZURE_AD_CLIENT_ID for production SSO.</p>
+          <p className="mt-8 text-[11px] leading-relaxed text-subtle">{LOCAL_ONLY ? "Privacy note: uploaded rows, local audit history, schedules, filters and layout preferences are stored in this browser only. Local profiles organize views but are not an authentication boundary." : "Azure AD / Microsoft Entra ID sign-in runs against a demo tenant in this environment. Configure the documented production proxy for real SSO."}</p>
         </div>
       </div>
     </div>

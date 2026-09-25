@@ -2,6 +2,7 @@
 
 import { type ReactNode, useEffect } from "react";
 import { cn } from "@/lib/format";
+import { LOCAL_ONLY } from "@/lib/mode";
 import { useDataStore } from "@/store/data";
 import { hydrateUI, useUIStore, writeSessionCookie } from "@/store/ui";
 import { ProfileDrawer } from "../employee/ProfileDrawer";
@@ -26,7 +27,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!hydrated) return;
-    writeSessionCookie(useUIStore.getState().session);
+    if (LOCAL_ONLY) useUIStore.getState().setStorageMode("local");
+    else writeSessionCookie(useUIStore.getState().session);
     void useDataStore.getState().bootstrap();
   }, [hydrated]);
 
@@ -40,7 +42,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
           {children}
         </main>
         <footer className="px-5 pb-6 text-center text-[11px] text-subtle" data-no-capture="true">
-          ATOMA · HR Workforce Intelligence Platform · Data stored in {storage === "server" ? "PostgreSQL (enterprise mode)" : storage === "local" ? "this browser (local mode — no server)" : "memory"} · Confidential
+          ATOMA · HR Workforce Intelligence Platform · {LOCAL_ONLY ? "Browser-only mode: employee data stays on this device and is never uploaded" : `Data stored in ${storage === "server" ? "PostgreSQL (enterprise mode)" : storage === "local" ? "this browser" : "memory"}`} · Confidential
         </footer>
       </div>
       <FilterPane />

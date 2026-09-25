@@ -14,7 +14,7 @@ The experience is intentionally comparable to Power BI, Tableau, SAP SuccessFact
 4. Make every analytic view interactive, drillable, exportable, and role-aware.
 5. Map Afghan employees reliably to the correct one of 34 provinces.
 6. Let each user personalize which cards and visuals are visible; hidden items must be removed from layout and remaining widgets must reflow automatically.
-7. Support both browser-only local data mode and centralized PostgreSQL enterprise mode.
+7. Operate browser-only by default: the local Next.js server serves application assets, while employee rows, datasets, audit history, schedules, filters, themes and layouts stay in the browser. PostgreSQL enterprise mode is optional and must be explicitly enabled at build time.
 
 ## 3. Personas and roles
 

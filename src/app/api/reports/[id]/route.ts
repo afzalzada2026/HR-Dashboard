@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { ensureSchema } from "@/db/ensure";
 import { scheduledReports } from "@/db/schema";
+import { localOnlyApiDisabled } from "@/lib/mode";
 import { can } from "@/lib/rbac";
 import { computeNextRun, type Frequency } from "@/lib/schedule";
 import { deny, getSession, serverError, writeAudit } from "@/lib/server";
@@ -16,6 +17,8 @@ function serialize(r: typeof scheduledReports.$inferSelect) {
 }
 
 export async function PATCH(req: NextRequest, { params }: Ctx) {
+  const disabled = localOnlyApiDisabled();
+  if (disabled) return disabled;
   try {
     await ensureSchema();
     const session = getSession(req);
@@ -41,6 +44,8 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
 }
 
 export async function DELETE(req: NextRequest, { params }: Ctx) {
+  const disabled = localOnlyApiDisabled();
+  if (disabled) return disabled;
   try {
     await ensureSchema();
     const session = getSession(req);

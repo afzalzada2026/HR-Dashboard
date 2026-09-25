@@ -3,6 +3,7 @@ import { desc, eq, ne } from "drizzle-orm";
 import { db } from "@/db";
 import { ensureSchema } from "@/db/ensure";
 import { datasetRecords, datasets } from "@/db/schema";
+import { localOnlyApiDisabled } from "@/lib/mode";
 import { applyRowLevelSecurity, can } from "@/lib/rbac";
 import { deny, getSession, serverError, toMeta, writeAudit } from "@/lib/server";
 import type { Employee } from "@/lib/types";
@@ -14,6 +15,8 @@ type Ctx = { params: Promise<{ id: string }> };
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function GET(req: NextRequest, { params }: Ctx) {
+  const disabled = localOnlyApiDisabled();
+  if (disabled) return disabled;
   try {
     await ensureSchema();
     const { id } = await params;
@@ -30,6 +33,8 @@ export async function GET(req: NextRequest, { params }: Ctx) {
 }
 
 export async function PATCH(req: NextRequest, { params }: Ctx) {
+  const disabled = localOnlyApiDisabled();
+  if (disabled) return disabled;
   try {
     await ensureSchema();
     const { id } = await params;
@@ -59,6 +64,8 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
 }
 
 export async function DELETE(req: NextRequest, { params }: Ctx) {
+  const disabled = localOnlyApiDisabled();
+  if (disabled) return disabled;
   try {
     await ensureSchema();
     const { id } = await params;

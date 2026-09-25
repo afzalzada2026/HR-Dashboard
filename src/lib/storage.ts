@@ -1,5 +1,8 @@
 import { del as idbDel, get as idbGet, set as idbSet } from "idb-keyval";
-import type { DatasetMeta, DatasetPayload, Employee, StorageMode } from "./types";
+import { LOCAL_ONLY } from "./mode";
+import { computeNextRun, type Frequency } from "./schedule";
+import type { AuditLog, DatasetMeta, DatasetPayload, Employee, ScheduledReport, Session, StorageMode } from "./types";
+import { safeText } from "./validation";
 
 export interface LoadedDataset {
   dataset: DatasetMeta;
@@ -123,11 +126,124 @@ export const localAdapter: StorageAdapter = {
   },
 };
 
-export const getAdapter = (mode: StorageMode): StorageAdapter => (mode === "local" ? localAdapter : serverAdapter);
+export const getAdapter = (mode: StorageMode): StorageAdapter => (LOCAL_ONLY || mode === "local" ? localAdapter : serverAdapter);
 
-/** Fire-and-forget audit event (server records user, role and IP from the session cookie). */
+const AUDIT_KEY = "atoma:audit:v1";
+const REPORTS_KEY = "atoma:reports:v1";
+
+function localSession(): Session | null {
+  if (typeof localStorage === "undefined") return null;
+  try {
+    const stored = JSON.parse(localStorage.getItem("atoma-ui") || "{}") as { state?: { session?: Session } };
+    return stored.state?.session ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function appendLocalAudit(action: string, category: string, details = ""): Promise<void> {
+  const session = localSession();
+  const current = (await idbGet<AuditLog[]>(AUDIT_KEY)) ?? [];
+  const nextId = (current[0]?.id ?? 0) + 1;
+  const event: AuditLog = {
+    id: nextId,
+    action: safeText(action, 120),
+    category: safeText(category, 40) || "general",
+    details: safeText(details, 1_000),
+    userName: session?.name ?? "Local user",
+    userEmail: session?.email ?? "",
+    role: session?.role ?? "hr_admin",
+    ip: "browser-local",
+    createdAt: new Date().toISOString(),
+  };
+  await idbSet(AUDIT_KEY, [event, ...current].slice(0, 500));
+}
+
+export async function queryLocalAudit(options: { q?: string; category?: string; limit?: number; offset?: number } = {}) {
+  const all = (await idbGet<AuditLog[]>(AUDIT_KEY)) ?? [];
+  const query = (options.q ?? "").trim().toLowerCase();
+  const filtered = all.filter((event) => {
+    if (options.category && event.category !== options.category) return false;
+    return !query || `${event.action} ${event.details} ${event.userName} ${event.role}`.toLowerCase().includes(query);
+  });
+  const offset = Math.max(0, options.offset ?? 0);
+  const limit = Math.max(1, Math.min(500, options.limit ?? 50));
+  return {
+    logs: filtered.slice(offset, offset + limit),
+    total: filtered.length,
+    categories: [...new Set(all.map((event) => event.category))].sort(),
+  };
+}
+
+export interface LocalReportInput {
+  name: string;
+  frequency: Frequency;
+  format: ScheduledReport["format"];
+  recipients: string;
+  sections: string[];
+  timeOfDay: string;
+  dayOfWeek: number;
+  dayOfMonth: number;
+  createdBy: string;
+}
+
+export async function listLocalReports(): Promise<ScheduledReport[]> {
+  return ((await idbGet<ScheduledReport[]>(REPORTS_KEY)) ?? []).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export async function createLocalReport(input: LocalReportInput): Promise<ScheduledReport> {
+  const current = await listLocalReports();
+  const report: ScheduledReport = {
+    id: Math.max(0, ...current.map((item) => item.id)) + 1,
+    name: safeText(input.name, 150),
+    frequency: input.frequency,
+    format: input.format,
+    recipients: safeText(input.recipients, 1_000),
+    sections: input.sections.map((item) => safeText(item, 80)).slice(0, 20),
+    timeOfDay: input.timeOfDay,
+    dayOfWeek: Math.max(0, Math.min(6, input.dayOfWeek)),
+    dayOfMonth: Math.max(1, Math.min(28, input.dayOfMonth)),
+    isActive: true,
+    lastRunAt: null,
+    nextRunAt: computeNextRun(input.frequency, input.timeOfDay, input.dayOfWeek, input.dayOfMonth).toISOString(),
+    runCount: 0,
+    createdBy: safeText(input.createdBy, 180),
+    createdAt: new Date().toISOString(),
+  };
+  await idbSet(REPORTS_KEY, [report, ...current]);
+  await appendLocalAudit("report.scheduled", "reports", `${report.name} · ${report.frequency} · ${report.format.toUpperCase()}`);
+  return report;
+}
+
+export async function updateLocalReport(id: number, patch: { isActive?: boolean; run?: boolean }): Promise<ScheduledReport> {
+  const current = await listLocalReports();
+  const existing = current.find((report) => report.id === id);
+  if (!existing) throw new Error("Report schedule not found.");
+  const updated: ScheduledReport = {
+    ...existing,
+    ...(typeof patch.isActive === "boolean" ? { isActive: patch.isActive } : {}),
+    ...(patch.run ? { lastRunAt: new Date().toISOString(), runCount: existing.runCount + 1 } : {}),
+    nextRunAt: computeNextRun(existing.frequency, existing.timeOfDay, existing.dayOfWeek, existing.dayOfMonth).toISOString(),
+  };
+  await idbSet(REPORTS_KEY, current.map((report) => (report.id === id ? updated : report)));
+  await appendLocalAudit(patch.run ? "report.executed" : updated.isActive ? "report.enabled" : "report.paused", "reports", updated.name);
+  return updated;
+}
+
+export async function deleteLocalReport(id: number): Promise<void> {
+  const current = await listLocalReports();
+  const existing = current.find((report) => report.id === id);
+  await idbSet(REPORTS_KEY, current.filter((report) => report.id !== id));
+  if (existing) await appendLocalAudit("report.deleted", "reports", existing.name);
+}
+
+/** Audit locally in browser-only mode; enterprise mode sends only event metadata to the API. */
 export function logAudit(action: string, category: string, details = "", meta?: Record<string, unknown>): void {
   if (typeof window === "undefined") return;
+  if (LOCAL_ONLY) {
+    void appendLocalAudit(action, category, details);
+    return;
+  }
   fetch("/api/audit", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

@@ -3,6 +3,7 @@ import { count, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { ensureSchema } from "@/db/ensure";
 import { auditLogs, datasets, scheduledReports } from "@/db/schema";
+import { localOnlyApiDisabled } from "@/lib/mode";
 import { can } from "@/lib/rbac";
 import { deny, getSession, serverError } from "@/lib/server";
 
@@ -11,6 +12,8 @@ export const dynamic = "force-dynamic";
 const mask = (value?: string) => (value ? `${value.slice(0, 4)}••••${value.slice(-4)}` : null);
 
 export async function GET(req: NextRequest) {
+  const disabled = localOnlyApiDisabled();
+  if (disabled) return disabled;
   try {
     const session = getSession(req);
     if (!can(session.role, "view_audit")) return deny("view_audit");
