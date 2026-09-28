@@ -1,8 +1,8 @@
 "use client";
 
-import { ChevronDown, ChevronRight, Crown, Expand, Hand, Maximize, Network, Search, Shrink, Users, ZoomIn, ZoomOut } from "lucide-react";
+import { Building2, ChevronDown, ChevronRight, Crown, Expand, GitBranch, Hand, Layers, Maximize, Network, Search, Shrink, Users, ZoomIn, ZoomOut } from "lucide-react";
 import { type PointerEvent as RPointerEvent, useMemo, useRef, useState } from "react";
-import { buildOrgTree, type OrgNode } from "@/lib/analytics";
+import { buildOrgTree, organizationLevelProfile, type OrgNode } from "@/lib/analytics";
 import { cn, fmtNum, fmtPct } from "@/lib/format";
 import { useDataStore } from "@/store/data";
 import { useUIStore } from "@/store/ui";
@@ -44,10 +44,68 @@ function Toggle({ open, count, onClick }: { open: boolean; count: number; onClic
   );
 }
 
+function scopedTree(root: OrgNode, division: string, department: string): OrgNode {
+  const divisions = root.children
+    .filter((node) => !division || node.label === division)
+    .map((node) => ({ ...node, children: node.children.filter((child) => !department || child.label === department) }));
+  const summaryNodes = department ? divisions.flatMap((node) => node.children) : divisions;
+  const scopedHeadcount = summaryNodes.reduce((sum, node) => sum + node.headcount, 0);
+  const scopedFemalePct = scopedHeadcount ? summaryNodes.reduce((sum, node) => sum + node.headcount * node.femalePct, 0) / scopedHeadcount : root.femalePct;
+  return { ...root, headcount: scopedHeadcount || root.headcount, femalePct: scopedFemalePct, children: divisions };
+}
+
+function EmployeeBranch({ node, expanded, toggle, openEmployee, ring, depth = 0 }: {
+  node: OrgNode;
+  expanded: Set<string>;
+  toggle: (id: string) => void;
+  openEmployee: (id: string | null) => void;
+  ring: (id: string) => string;
+  depth?: number;
+}) {
+  const open = expanded.has(node.id);
+  const reports = node.children.length;
+  return (
+    <div className="org-vitem">
+      <div className={cn("flex w-full items-center gap-2 rounded-xl border border-line bg-surface-strong px-2 py-1.5 transition-all hover:border-accent/50 hover:shadow-md", ring(node.id))}>
+        <button id={domId(node.id)} type="button" onClick={() => node.person && openEmployee(node.person.id)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+          <Avatar name={node.label} size={24} />
+          <span className="min-w-0 flex-1">
+            <span className="flex items-center gap-1.5">
+              <span className="truncate text-[11.5px] font-medium text-fg">{node.label}</span>
+              {node.levelCode && <Badge tone={node.levelCode === "L3H" ? "warning" : "primary"}>{node.levelCode}</Badge>}
+            </span>
+            <span className="block truncate text-[10px] text-muted">{node.person?.title}</span>
+          </span>
+        </button>
+        {reports > 0 && <Toggle open={open} count={reports} onClick={() => toggle(node.id)} />}
+      </div>
+      {open && reports > 0 && (
+        <div className={cn("org-vlist", depth > 4 && "ml-2")}>
+          {node.children.map((child) => (
+            <EmployeeBranch key={child.id} node={child} expanded={expanded} toggle={toggle} openEmployee={openEmployee} ring={ring} depth={depth + 1} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function OrgInner() {
   const filtered = useDataStore((s) => s.filtered);
   const openEmployee = useUIStore((s) => s.openEmployee);
-  const tree = useMemo(() => buildOrgTree(filtered), [filtered]);
+  const [selectedDivision, setSelectedDivision] = useState("");
+  const [selectedDepartment, setSelectedDepartment] = useState("");
+  const divisions = useMemo(() => [...new Set(filtered.map((employee) => employee.division))].filter(Boolean).sort(), [filtered]);
+  const division = divisions.includes(selectedDivision) ? selectedDivision : "";
+  const departments = useMemo(
+    () => division ? [...new Set(filtered.filter((employee) => employee.division === division).map((employee) => employee.department))].filter(Boolean).sort() : [],
+    [filtered, division]
+  );
+  const department = departments.includes(selectedDepartment) ? selectedDepartment : "";
+  const scopedEmployees = useMemo(() => filtered.filter((employee) => (!division || employee.division === division) && (!department || employee.department === department)), [filtered, division, department]);
+  const fullTree = useMemo(() => buildOrgTree(filtered), [filtered]);
+  const tree = useMemo(() => scopedTree(fullTree, division, department), [fullTree, division, department]);
+  const levelProfile = useMemo(() => organizationLevelProfile(scopedEmployees), [scopedEmployees]);
   const flat = useMemo(() => flatten(tree), [tree]);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set(["ceo"]));
   const [limits, setLimits] = useState<Record<string, number>>({});
@@ -63,7 +121,7 @@ function OrgInner() {
     else n.add(id);
     return n;
   });
-  const expandAll = () => setExpanded(new Set(flat.filter((f) => f.node.kind !== "employee").map((f) => f.node.id)));
+  const expandAll = () => setExpanded(new Set(flat.filter((item) => item.node.children.length > 0).map((item) => item.node.id)));
   const collapseAll = () => setExpanded(new Set(["ceo"]));
 
   const s = q.trim().toLowerCase();
@@ -75,8 +133,8 @@ function OrgInner() {
   const focus = (f: Flat) => {
     setExpanded((prev) => new Set([...prev, ...f.path]));
     if (f.node.kind === "employee") {
-      const parent = f.path[f.path.length - 1];
-      setLimits((l) => ({ ...l, [parent]: Math.max(l[parent] ?? PAGE, f.index + 1) }));
+      const departmentId = f.path.find((id) => id.startsWith("dept:"));
+      if (departmentId) setLimits((limits) => ({ ...limits, [departmentId]: Number.MAX_SAFE_INTEGER }));
     }
     setHighlight(f.node.id);
     setQ("");
@@ -101,7 +159,8 @@ function OrgInner() {
 
   const ring = (id: string) => (highlight === id ? "ring-4 ring-amber-400/70 shadow-[0_0_30px_rgba(255,179,0,0.45)]" : "");
   const ceo = tree.person;
-  const depts = tree.children.reduce((a, d) => a + d.children.length, 0);
+  const depts = tree.children.reduce((count, divisionNode) => count + divisionNode.children.length, 0);
+  const mappedLevels = levelProfile.sequence.filter((level) => levelProfile.counts[level] > 0);
 
   return (
     <>
@@ -109,12 +168,49 @@ function OrgInner() {
         eyebrow="Organization"
         title="Interactive org chart"
         icon={<Network />}
-        subtitle={`CEO → ${tree.children.length} division heads → ${depts} department heads → ${fmtNum(filtered.length)} employees`}
+        subtitle={`${division || "All divisions"}${department ? ` → ${department}` : ""} · ${tree.children.length} division branch${tree.children.length === 1 ? "" : "es"} · ${depts} department${depts === 1 ? "" : "s"} · ${fmtNum(scopedEmployees.length)} employees`}
       />
-      <div className="glass animate-fade-up relative z-10 mb-3 flex flex-col gap-2 rounded-2xl p-3 lg:flex-row lg:items-center lg:justify-between" data-no-capture="true">
-        <div className="relative w-full lg:max-w-sm">
-          <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-subtle" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people, titles, departments…" className="field h-10 pl-9" />
+      <div className="glass animate-fade-up relative z-10 mb-3 rounded-2xl p-3" data-no-capture="true">
+        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-[220px_240px_minmax(260px,1fr)_auto] xl:items-center">
+          <label className="relative">
+            <Building2 className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-subtle" />
+            <select
+              className="field h-10 pl-9"
+              value={division}
+              onChange={(event) => {
+                const value = event.target.value;
+                setSelectedDivision(value);
+                setSelectedDepartment("");
+                setLimits({});
+                setExpanded(new Set(["ceo", ...(value ? [`div:${value}`] : [])]));
+              }}
+              aria-label="Filter org chart by division"
+            >
+              <option value="">All divisions</option>
+              {divisions.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+          </label>
+          <label className="relative">
+            <Layers className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-subtle" />
+            <select
+              className="field h-10 pl-9 disabled:cursor-not-allowed disabled:opacity-50"
+              value={department}
+              disabled={!division}
+              onChange={(event) => {
+                const value = event.target.value;
+                setSelectedDepartment(value);
+                setLimits({});
+                setExpanded(new Set(["ceo", `div:${division}`, ...(value ? [`dept:${division}:${value}`] : [])]));
+              }}
+              aria-label="Filter org chart by department"
+            >
+              <option value="">All departments</option>
+              {departments.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+          </label>
+          <div className="relative w-full">
+            <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-subtle" />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search within the selected organization scope…" className="field h-10 pl-9" />
           {results.length > 0 && (
             <div className="glass-strong animate-pop absolute inset-x-0 top-full z-50 mt-2 rounded-xl p-1.5">
               {results.map((f) => (
@@ -153,12 +249,25 @@ function OrgInner() {
             <Hand className="h-3.5 w-3.5" /> drag to pan · ctrl+scroll to zoom
           </span>
         </div>
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-line pt-2 text-[11px] text-muted">
+          <GitBranch className="h-3.5 w-3.5 text-accent" />
+          <span className="font-semibold text-fg">Detected hierarchy:</span>
+          {mappedLevels.length ? mappedLevels.map((level, index) => (
+            <span key={level} className="inline-flex items-center gap-1">
+              {index > 0 && <ChevronRight className="h-3 w-3 text-subtle" />}
+              <Badge tone={level === "L3H" ? "warning" : "primary"}>{level} · {levelProfile.counts[level]}</Badge>
+            </span>
+          )) : <span>No L1–L6 bands detected; title/reporting structure is used.</span>}
+          {levelProfile.evidence > 0 && <span className="ml-auto text-subtle">{Math.round(levelProfile.confidence * 100)}% agreement across {levelProfile.evidence} supervisor pairs</span>}
+        </div>
       </div>
 
       <div
         ref={canvas}
         className="glass relative cursor-grab overflow-auto rounded-2xl active:cursor-grabbing"
-        style={{ height: "max(560px, calc(100vh - 290px))" }}
+        style={{ height: "max(560px, calc(100vh - 350px))" }}
+        data-export-expand="true"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
@@ -184,7 +293,7 @@ function OrgInner() {
                   <button type="button" onClick={() => ceo && openEmployee(ceo.id)} className="block truncate text-left text-[15px] font-bold hover:underline">
                     {tree.label}
                   </button>
-                  <p className="truncate text-[11.5px] text-white/75">{ceo?.title ?? "Chief Executive Officer"}</p>
+                  <p className="flex items-center gap-1.5 truncate text-[11.5px] text-white/75">{ceo?.title ?? "Chief Executive Officer"}{tree.levelCode && <span className="rounded-full bg-white/15 px-1.5 py-0.5 text-[9px] font-bold text-white">{tree.levelCode}</span>}</p>
                 </div>
               </div>
               <div className="relative mt-3 flex items-center justify-between text-[11px] text-white/80">
@@ -214,7 +323,7 @@ function OrgInner() {
                             <button type="button" onClick={() => openEmployee(div.person!.id)} className="mt-2 flex w-full items-center gap-2 rounded-xl p-1 text-left hover:bg-surface-muted">
                               <Avatar name={div.person.fullName} size={30} />
                               <span className="min-w-0">
-                                <span className="block truncate text-[12px] font-semibold text-fg">{div.person.fullName}</span>
+                                <span className="flex items-center gap-1 truncate text-[12px] font-semibold text-fg">{div.person.fullName}{div.levelCode && <Badge tone={div.levelCode === "L3H" ? "warning" : "primary"}>{div.levelCode}</Badge>}</span>
                                 <span className="block truncate text-[10.5px] text-muted">{div.person.title}</span>
                               </span>
                             </button>
@@ -237,32 +346,20 @@ function OrgInner() {
                                   <div id={domId(dept.id)} className={cn("glass rounded-xl p-2.5 transition-shadow", ring(dept.id))}>
                                     <div className="flex items-center justify-between gap-2">
                                       <p className="truncate text-[12px] font-semibold text-fg">{dept.label}</p>
-                                      <Toggle open={dOpen} count={dept.children.length} onClick={() => toggle(dept.id)} />
+                                      <Toggle open={dOpen} count={Math.max(0, dept.headcount - (dept.person ? 1 : 0))} onClick={() => toggle(dept.id)} />
                                     </div>
                                     {dept.person && (
                                       <button type="button" onClick={() => openEmployee(dept.person!.id)} className="mt-1 flex w-full items-center gap-1.5 text-left">
                                         <Avatar name={dept.person.fullName} size={22} />
-                                        <span className="truncate text-[11px] text-muted hover:text-fg">{dept.person.fullName}</span>
+                                        <span className="min-w-0 flex-1 truncate text-[11px] text-muted hover:text-fg">{dept.person.fullName}</span>
+                                        {dept.levelCode && <Badge tone={dept.levelCode === "L3H" ? "warning" : "primary"}>{dept.levelCode}</Badge>}
                                       </button>
                                     )}
                                   </div>
                                   {dOpen && (
                                     <div className="org-vlist">
-                                      {dept.children.slice(0, limit).map((emp) => (
-                                        <div key={emp.id} className="org-vitem">
-                                          <button
-                                            id={domId(emp.id)}
-                                            type="button"
-                                            onClick={() => emp.person && openEmployee(emp.person.id)}
-                                            className={cn("flex w-full items-center gap-2 rounded-xl border border-line bg-surface-strong px-2 py-1.5 text-left transition-all hover:border-accent/50 hover:shadow-md", ring(emp.id))}
-                                          >
-                                            <Avatar name={emp.label} size={24} />
-                                            <span className="min-w-0">
-                                              <span className="block truncate text-[11.5px] font-medium text-fg">{emp.label}</span>
-                                              <span className="block truncate text-[10px] text-muted">{emp.person?.title}</span>
-                                            </span>
-                                          </button>
-                                        </div>
+                                      {dept.children.slice(0, limit).map((employeeNode) => (
+                                        <EmployeeBranch key={employeeNode.id} node={employeeNode} expanded={expanded} toggle={toggle} openEmployee={openEmployee} ring={ring} />
                                       ))}
                                       {dept.children.length > limit && (
                                         <div className="org-vitem">

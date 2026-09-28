@@ -199,7 +199,24 @@ Missing division causes a 401 in production. The API filters employee rows befor
 - Secrets stay server-side.
 - `/api/health` is intentionally public and only reports `{ok}`.
 
-## 8. Afghanistan map architecture
+## 8. Export capture architecture
+
+- Export mode mounts lazy charts and waits up to four seconds for ECharts/font readiness.
+- Capture dimensions use the complete target `scrollWidth`/`scrollHeight`, not only the viewport.
+- Scale is high-DPI but bounded against Chromium canvas width/height/area limits.
+- Capture clone disables animations/transitions and expands elements marked `data-export-expand=true`.
+- Dashboard PDF uses lossless PNG page slices with overlap to avoid clipped seams.
+- Org chart marks its scroll canvas export-expandable so the full expanded tree is captured.
+
+## 9. Organization hierarchy architecture
+
+- `canonicalOrgLevel()` recognizes L1/L2/L3/L3H/L4/L5/L6 variants.
+- `organizationLevelProfile()` compares employee/supervisor band numbers to infer L1-senior vs L6-senior and reports confidence.
+- CEO/division/department heads are resolved from inferred seniority + title + direct-report evidence.
+- Department employees form recursive nodes from actual supervisor links; malformed cycles are removed.
+- UI scopes the complete tree by Division, then Department, preserving higher leadership context.
+
+## 10. Afghanistan map architecture
 
 - Boundary source: geoBoundaries AFG ADM1 simplified geometry (34 features), stored locally.
 - Feature names are normalized to canonical product names (e.g. Ghazni, Nimroz, Sar-e-Pul).

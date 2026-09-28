@@ -73,4 +73,4 @@ Every icon action has a label/tooltip. Dialog semantics and Escape close. Switch
 
 ## Export styling
 
-ATOMA navy header, bright blue accent line, title/dataset/scope/user/timestamp, and confidential footer. Structured Excel remains independent of display personalization and follows approved filter/security scope.
+ATOMA navy header, bright blue accent line, title/dataset/scope/user/timestamp, and confidential footer. Captures wait for charts/fonts, use full scroll dimensions, disable animation, and render at a canvas-safe high-DPI scale. Dashboard PDFs use lossless PNG slices instead of JPEG to preserve labels and fine chart detail. Structured Excel remains independent of display personalization and follows approved filter/security scope.

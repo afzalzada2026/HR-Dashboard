@@ -144,19 +144,69 @@ export async function exportWorkbook(ctx: ReportContext): Promise<void> {
 
 /* ------------------------------------------------------------ images */
 
-export async function captureElement(el: HTMLElement, background: string, scale = 1.6): Promise<HTMLCanvasElement> {
+async function waitForExportReady(root: HTMLElement): Promise<void> {
+  await document.fonts?.ready;
+  const deadline = Date.now() + 4_000;
+  while (Date.now() < deadline) {
+    const pending = [...root.querySelectorAll<HTMLElement>("[data-echart-ready]")].some((chart) => chart.dataset.echartReady !== "true");
+    if (!pending) break;
+    await new Promise((resolve) => setTimeout(resolve, 80));
+  }
+  await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+}
+
+function safeCaptureScale(width: number, height: number, requested: number): number {
+  // Stay below common Chromium canvas limits while retaining at least print-quality resolution.
+  const byArea = Math.sqrt(90_000_000 / Math.max(1, width * height));
+  const byWidth = 16_000 / Math.max(1, width);
+  const byHeight = 32_000 / Math.max(1, height);
+  return Math.max(1, Math.min(requested, 2.5, byArea, byWidth, byHeight));
+}
+
+export async function captureElement(el: HTMLElement, background: string, scale = 2.2): Promise<HTMLCanvasElement> {
   const html2canvas = (await import("html2canvas-pro")).default;
-  return html2canvas(el, {
-    backgroundColor: background,
-    scale: Math.min(scale, 2),
-    useCORS: true,
-    logging: false,
-    ignoreElements: (node: Element) => node instanceof HTMLElement && node.dataset.noCapture === "true",
-  });
+  const token = `capture-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  el.dataset.captureRoot = token;
+  await waitForExportReady(el);
+  const width = Math.max(el.scrollWidth, el.offsetWidth, 1);
+  const height = Math.max(el.scrollHeight, el.offsetHeight, 1);
+  const actualScale = safeCaptureScale(width, height, scale);
+  try {
+    return await html2canvas(el, {
+      backgroundColor: background,
+      scale: actualScale,
+      width,
+      height,
+      windowWidth: Math.max(window.innerWidth, width),
+      windowHeight: Math.max(window.innerHeight, height),
+      scrollX: 0,
+      scrollY: -window.scrollY,
+      useCORS: true,
+      imageTimeout: 15_000,
+      logging: false,
+      ignoreElements: (node: Element) => node instanceof HTMLElement && node.dataset.noCapture === "true",
+      onclone: (doc) => {
+        const style = doc.createElement("style");
+        style.textContent = `
+          *, *::before, *::after { animation: none !important; transition: none !important; caret-color: transparent !important; }
+          [data-export-expand="true"] { overflow: visible !important; max-height: none !important; height: auto !important; }
+          [data-capture-root="${token}"] { width: ${width}px !important; min-width: ${width}px !important; overflow: visible !important; }
+        `;
+        doc.head.appendChild(style);
+        const cloneRoot = doc.querySelector<HTMLElement>(`[data-capture-root="${token}"]`);
+        if (cloneRoot) {
+          cloneRoot.style.height = "auto";
+          cloneRoot.style.maxHeight = "none";
+        }
+      },
+    });
+  } finally {
+    delete el.dataset.captureRoot;
+  }
 }
 
 export async function exportPNG(el: HTMLElement, title: string, background: string): Promise<void> {
-  const canvas = await captureElement(el, background, 2);
+  const canvas = await captureElement(el, background, 2.4);
   downloadDataUrl(canvas.toDataURL("image/png"), `${slugify(title)}-${timestampSlug()}.png`);
 }
 
@@ -170,8 +220,8 @@ export interface SnapshotMeta {
 
 /** Branded composite snapshot: ATOMA header band + context (filters, author, timestamp) + dashboard capture. */
 export async function exportSnapshot(el: HTMLElement, meta: SnapshotMeta): Promise<void> {
-  const shot = await captureElement(el, meta.background, 1.5);
-  const s = 1.5;
+  const shot = await captureElement(el, meta.background, 2.2);
+  const s = Math.max(1.5, Math.min(2.2, shot.width / Math.max(1, el.scrollWidth)));
   const pad = Math.round(32 * s);
   const headerH = Math.round(132 * s);
   const footerH = Math.round(40 * s);
@@ -220,7 +270,7 @@ function rgb(hex: string): [number, number, number] {
 
 /** Multi-page landscape PDF of any dashboard view with ATOMA header/footer on every page. */
 export async function exportViewPDF(el: HTMLElement, meta: SnapshotMeta): Promise<void> {
-  const [{ jsPDF }, shot] = await Promise.all([import("jspdf"), captureElement(el, meta.background, 1.6)]);
+  const [{ jsPDF }, shot] = await Promise.all([import("jspdf"), captureElement(el, meta.background, 2.35)]);
   const pdf = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
   const W = pdf.internal.pageSize.getWidth();
   const H = pdf.internal.pageSize.getHeight();
@@ -250,13 +300,18 @@ export async function exportViewPDF(el: HTMLElement, meta: SnapshotMeta): Promis
     pdf.text(`Workforce Intelligence · ${meta.title}`, margin, 36);
     pdf.text(new Date().toLocaleString(), W - margin, 22, { align: "right" });
     pdf.text(`Prepared by ${meta.user}`, W - margin, 36, { align: "right" });
-    const y = p * slicePx;
-    const h = Math.min(slicePx, shot.height - y);
+    const overlap = p === 0 ? 0 : 2;
+    const y = Math.max(0, p * slicePx - overlap);
+    const h = Math.min(slicePx + overlap, shot.height - y);
     const slice = document.createElement("canvas");
     slice.width = shot.width;
     slice.height = h;
-    slice.getContext("2d")?.drawImage(shot, 0, y, shot.width, h, 0, 0, shot.width, h);
-    pdf.addImage(slice.toDataURL("image/jpeg", 0.9), "JPEG", margin, headerH, usableW, h * ratio);
+    const sliceContext = slice.getContext("2d", { alpha: false });
+    if (!sliceContext) throw new Error("Canvas not supported");
+    sliceContext.fillStyle = meta.background;
+    sliceContext.fillRect(0, 0, slice.width, slice.height);
+    sliceContext.drawImage(shot, 0, y, shot.width, h, 0, 0, shot.width, h);
+    pdf.addImage(slice.toDataURL("image/png"), "PNG", margin, headerH, usableW, h * ratio, undefined, "FAST");
     pdf.setTextColor(120, 134, 156);
     pdf.setFontSize(8);
     const f = meta.filters.length ? `Filters: ${meta.filters.join(" • ")}` : "Filters: none";

@@ -95,7 +95,7 @@ export default function EChart({ option, height = 300, onClick, needsMap = false
   }, [ready, option, tokens, exporting]);
 
   return (
-    <div className={cn("relative w-full", className)} style={{ height }}>
+    <div className={cn("relative w-full", className)} style={{ height }} data-echart-ready={ready ? "true" : "false"}>
       <div ref={el} className="absolute inset-0" />
       {!ready && !failed && <div className="skeleton absolute inset-0" />}
       {failed && <div className="absolute inset-0 grid place-items-center text-sm text-muted">Visual failed to load</div>}

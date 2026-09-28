@@ -55,7 +55,10 @@ Legend: `[x]` complete, `[ ]` backlog, `[!]` production dependency/decision.
 - [x] Column selector, paging, frozen header/first column, CSV/XLSX export.
 - [x] Employee profile drawer, reporting chain, direct reports.
 - [x] Profile PDF, print, copy contact.
-- [x] Zoom/pan/search/expand org chart.
+- [x] Zoom/pan/search/recursive-expand org chart.
+- [x] Cascading Division → Department org-chart filters.
+- [x] L1/L2/L3/L3H/L4/L5/L6 canonicalization and inferred seniority direction.
+- [x] Supervisor-first recursive reporting hierarchy with cycle protection.
 - [x] Deterministic AI insights and workforce Q&A.
 
 ## Reporting

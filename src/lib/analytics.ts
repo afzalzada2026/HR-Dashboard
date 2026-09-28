@@ -549,57 +549,185 @@ export function levelDistribution(emps: Employee[]): NameValue[] {
 
 /* ------------------------------------------------------------ org tree */
 
+export type OrgLevelCode = "L1" | "L2" | "L3" | "L3H" | "L4" | "L5" | "L6";
+export type LevelDirection = "l1-senior" | "l6-senior";
+
 export interface OrgNode {
   id: string;
   kind: "ceo" | "division" | "department" | "employee";
   label: string;
   person: Employee | null;
+  levelCode: OrgLevelCode | null;
   headcount: number;
   femalePct: number;
   children: OrgNode[];
 }
 
+export interface OrganizationLevelProfile {
+  direction: LevelDirection;
+  evidence: number;
+  confidence: number;
+  sequence: OrgLevelCode[];
+  counts: Record<OrgLevelCode, number>;
+}
+
+const ORG_LEVELS: OrgLevelCode[] = ["L1", "L2", "L3", "L3H", "L4", "L5", "L6"];
 const CEO_RE = /chief executive|\bceo\b|managing director|country director|country manager|\bpresident\b|general director/i;
 const DIV_HEAD_RE = /chief|director|\bvp\b|vice president|head of division|division head|general manager/i;
 const DEPT_HEAD_RE = /head|manager|director|lead/i;
 
-function pickHead(list: Employee[], re: RegExp): Employee | null {
+/** Normalizes forms such as L3H, L-3-H, Level 3H and "L4 - Senior". */
+export function canonicalOrgLevel(value: string): OrgLevelCode | null {
+  const normalized = value.toUpperCase().replace(/LEVEL/g, "L").replace(/[^A-Z0-9]/g, "");
+  const match = normalized.match(/^L?([1-6])(H)?/);
+  if (!match) return null;
+  if (match[1] === "3" && match[2]) return "L3H";
+  return `L${match[1]}` as OrgLevelCode;
+}
+
+function levelNumber(code: OrgLevelCode): number {
+  return Number(code[1]);
+}
+
+/** Infers band direction from actual supervisor relationships instead of assuming L1 or L6 is senior. */
+export function organizationLevelProfile(emps: Employee[]): OrganizationLevelProfile {
+  const counts = Object.fromEntries(ORG_LEVELS.map((level) => [level, 0])) as Record<OrgLevelCode, number>;
+  for (const employee of emps) {
+    const code = canonicalOrgLevel(employee.level);
+    if (code) counts[code]++;
+  }
+  const index = buildIndex(emps);
+  let lowerSupervisor = 0;
+  let higherSupervisor = 0;
+  for (const employee of emps) {
+    const supervisor = findSupervisor(employee, index);
+    const employeeCode = canonicalOrgLevel(employee.level);
+    const supervisorCode = supervisor ? canonicalOrgLevel(supervisor.level) : null;
+    if (!employeeCode || !supervisorCode) continue;
+    const employeeNumber = levelNumber(employeeCode);
+    const supervisorNumber = levelNumber(supervisorCode);
+    if (supervisorNumber < employeeNumber) lowerSupervisor++;
+    else if (supervisorNumber > employeeNumber) higherSupervisor++;
+  }
+  const evidence = lowerSupervisor + higherSupervisor;
+  const direction: LevelDirection = lowerSupervisor >= higherSupervisor ? "l1-senior" : "l6-senior";
+  const sequence: OrgLevelCode[] = direction === "l1-senior"
+    ? ["L1", "L2", "L3", "L3H", "L4", "L5", "L6"]
+    : ["L6", "L5", "L4", "L3H", "L3", "L2", "L1"];
+  return { direction, evidence, confidence: evidence ? Math.max(lowerSupervisor, higherSupervisor) / evidence : 0, sequence, counts };
+}
+
+function seniority(employee: Employee, profile: OrganizationLevelProfile): number {
+  const code = canonicalOrgLevel(employee.level);
+  if (code) return profile.sequence.length - profile.sequence.indexOf(code);
+  return profile.direction === "l1-senior" ? 11 - employee.levelRank : employee.levelRank;
+}
+
+function pickHead(list: Employee[], re: RegExp, profile: OrganizationLevelProfile): Employee | null {
   let best: Employee | null = null;
-  let bestScore = -1;
-  for (const e of list) {
-    const s = e.levelRank * 10 + (re.test(e.title) ? 25 : 0) + Math.min(e.directReports, 60) * 0.4;
-    if (s > bestScore) { best = e; bestScore = s; }
+  let bestScore = -Infinity;
+  for (const employee of list) {
+    const score = seniority(employee, profile) * 20 + (re.test(employee.title) ? 55 : 0) + (canonicalOrgLevel(employee.level) === "L3H" ? 30 : 0) + Math.min(employee.directReports, 60);
+    if (score > bestScore) {
+      best = employee;
+      bestScore = score;
+    }
   }
   return best;
 }
 
-const femPct = (l: Employee[]) => (l.length ? (l.filter((e) => e.gender === "Female").length / l.length) * 100 : 0);
+const femPct = (list: Employee[]) => (list.length ? (list.filter((employee) => employee.gender === "Female").length / list.length) * 100 : 0);
+
+function employeeHierarchy(members: Employee[], allIndex: ReturnType<typeof buildIndex>, profile: OrganizationLevelProfile): OrgNode[] {
+  const memberIds = new Set(members.map((employee) => employee.id));
+  const parent = new Map<string, string>();
+  for (const employee of members) {
+    const supervisor = findSupervisor(employee, allIndex);
+    if (supervisor && supervisor.id !== employee.id && memberIds.has(supervisor.id)) parent.set(employee.id, supervisor.id);
+  }
+  // Break malformed reporting cycles before constructing recursive nodes.
+  for (const employee of members) {
+    const seen = new Set([employee.id]);
+    let current = parent.get(employee.id);
+    while (current) {
+      if (seen.has(current)) {
+        parent.delete(employee.id);
+        break;
+      }
+      seen.add(current);
+      current = parent.get(current);
+    }
+  }
+  const byParent = new Map<string, Employee[]>();
+  for (const employee of members) {
+    const parentId = parent.get(employee.id) ?? "root";
+    const list = byParent.get(parentId) ?? [];
+    list.push(employee);
+    byParent.set(parentId, list);
+  }
+  const sort = (list: Employee[]) => [...list].sort((a, b) => seniority(b, profile) - seniority(a, profile) || b.directReports - a.directReports || a.fullName.localeCompare(b.fullName));
+  const makeNode = (employee: Employee): OrgNode => {
+    const children = sort(byParent.get(employee.id) ?? []).map(makeNode);
+    return {
+      id: `emp:${employee.id}`,
+      kind: "employee",
+      label: employee.fullName,
+      person: employee,
+      levelCode: canonicalOrgLevel(employee.level),
+      headcount: 1 + children.reduce((sum, child) => sum + child.headcount, 0),
+      femalePct: employee.gender === "Female" ? 100 : 0,
+      children,
+    };
+  };
+  return sort(byParent.get("root") ?? []).map(makeNode);
+}
 
 export function buildOrgTree(emps: Employee[]): OrgNode {
-  let ceo: Employee | null = emps.find((e) => CEO_RE.test(e.title)) ?? null;
-  if (!ceo && emps.length) {
-    const top = [...emps].sort((a, b) => b.levelRank - a.levelRank || b.directReports - a.directReports)[0];
-    ceo = top && top.levelRank >= 9 ? top : null;
-  }
+  const profile = organizationLevelProfile(emps);
+  const allIndex = buildIndex(emps);
+  let ceo: Employee | null = emps.find((employee) => CEO_RE.test(employee.title)) ?? null;
+  if (!ceo && emps.length) ceo = pickHead(emps, CEO_RE, profile);
   const divisions: OrgNode[] = [];
-  const byDiv = [...groupBy(emps, (e) => e.division || "Unassigned").entries()].sort((a, b) => b[1].length - a[1].length);
-  for (const [div, list] of byDiv) {
-    const head = pickHead(list.filter((e) => e !== ceo), DIV_HEAD_RE);
-    const depts: OrgNode[] = [];
-    const byDept = [...groupBy(list, (e) => e.department || "General").entries()].sort((a, b) => b[1].length - a[1].length);
-    for (const [dept, dl] of byDept) {
-      const dhead = pickHead(dl.filter((e) => e !== ceo && e !== head), DEPT_HEAD_RE);
-      const members = dl
-        .filter((e) => e !== dhead && e !== head && e !== ceo)
-        .sort((a, b) => b.levelRank - a.levelRank || a.fullName.localeCompare(b.fullName));
-      depts.push({
-        id: `dept:${div}:${dept}`, kind: "department", label: dept, person: dhead, headcount: dl.length, femalePct: femPct(dl),
-        children: members.map((m) => ({ id: `emp:${m.id}`, kind: "employee", label: m.fullName, person: m, headcount: 1, femalePct: 0, children: [] })),
+  const byDiv = [...groupBy(emps, (employee) => employee.division || "Unassigned").entries()].sort((a, b) => b[1].length - a[1].length);
+  for (const [division, list] of byDiv) {
+    const head = pickHead(list.filter((employee) => employee !== ceo), DIV_HEAD_RE, profile);
+    const departments: OrgNode[] = [];
+    const byDepartment = [...groupBy(list, (employee) => employee.department || "General").entries()].sort((a, b) => b[1].length - a[1].length);
+    for (const [department, departmentEmployees] of byDepartment) {
+      const departmentHead = pickHead(departmentEmployees.filter((employee) => employee !== ceo && employee !== head), DEPT_HEAD_RE, profile);
+      const members = departmentEmployees.filter((employee) => employee !== departmentHead && employee !== head && employee !== ceo);
+      departments.push({
+        id: `dept:${division}:${department}`,
+        kind: "department",
+        label: department,
+        person: departmentHead,
+        levelCode: departmentHead ? canonicalOrgLevel(departmentHead.level) : null,
+        headcount: departmentEmployees.length,
+        femalePct: femPct(departmentEmployees),
+        children: employeeHierarchy(members, allIndex, profile),
       });
     }
-    divisions.push({ id: `div:${div}`, kind: "division", label: div, person: head, headcount: list.length, femalePct: femPct(list), children: depts });
+    divisions.push({
+      id: `div:${division}`,
+      kind: "division",
+      label: division,
+      person: head,
+      levelCode: head ? canonicalOrgLevel(head.level) : null,
+      headcount: list.length,
+      femalePct: femPct(list),
+      children: departments,
+    });
   }
-  return { id: "ceo", kind: "ceo", label: ceo ? ceo.fullName : "Chief Executive Officer", person: ceo, headcount: emps.length, femalePct: femPct(emps), children: divisions };
+  return {
+    id: "ceo",
+    kind: "ceo",
+    label: ceo ? ceo.fullName : "Chief Executive Officer",
+    person: ceo,
+    levelCode: ceo ? canonicalOrgLevel(ceo.level) : null,
+    headcount: emps.length,
+    femalePct: femPct(emps),
+    children: divisions,
+  };
 }
 
 /* ------------------------------------------------------------ province */

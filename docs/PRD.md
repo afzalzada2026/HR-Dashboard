@@ -122,8 +122,13 @@ Chart clicks cross-filter the entire application. Charts support table mode, foc
 
 ### 4.8 Org chart
 
-- CEO → division → department → employee structure.
-- Search, zoom, pan, expand/collapse, paged employee branches, and profile drill-through.
+- CEO → division → department → employee reporting structure.
+- Cascading local selectors: Division first, then only departments available in that division.
+- Canonical company bands: L1, L2, L3, L3H, L4, L5, L6.
+- Seniority direction (L1-senior or L6-senior) is inferred from actual supervisor relationships rather than hardcoded.
+- L3H receives head-band priority when resolving department heads.
+- Actual supervisor links are primary; bands, titles and direct-report counts resolve leaders and missing links.
+- Search, zoom, pan, recursive expand/collapse, paged top branches, and profile drill-through.
 
 ### 4.9 Insights
 
@@ -133,11 +138,12 @@ Chart clicks cross-filter the entire application. Charts support table mode, foc
 
 ### 4.10 Reporting
 
-- PDF, XLSX, CSV, PNG, branded snapshot, and executive PDF.
+- PDF, executive PDF, XLSX, CSV, PNG, and branded snapshot.
+- Full-scroll, high-DPI capture waits for fonts/charts and expands marked scroll areas.
+- Dashboard PDFs use lossless PNG page slices for clear labels and complete content.
 - Formula-leading spreadsheet values are escaped before export.
-- Daily/weekly/monthly report schedules stored in PostgreSQL.
-- “Run now” generates the output and records an audit event.
-- Email delivery is represented in UI but requires an external mail/queue integration for production.
+- Browser-only mode stores daily/weekly/monthly report reminders in IndexedDB; “Run now” generates the file locally.
+- Optional enterprise mode stores schedules in PostgreSQL; automatic email still requires a queue/mail integration.
 
 ### 4.11 Themes and responsive UX
 

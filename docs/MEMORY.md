@@ -31,7 +31,9 @@ This file is a concise handoff for future maintainers and AI coding sessions. Re
 7. **Demo auth is not auth.** Browser cookie supports role demonstrations only. Production uses validated proxy headers and secret.
 8. **Role source in production is Entra app roles.** Do not use Entra tenant administrator roles as application permissions.
 9. **Remarks-derived HR signals.** Turnover/promotion are inferred only because the source schema lacks authoritative events. Replace when fields become available.
-10. **Exports respect security scope and filters.** View snapshots also reflect hidden widgets; structured workbook contains all approved filtered columns.
+10. **Exports respect security scope and filters.** View snapshots reflect hidden widgets; structured workbook contains all approved filtered columns.
+11. **Capture is full-scroll/high-DPI.** Do not replace the readiness/safe-scale/PNG-slice pipeline with a simple viewport JPEG capture.
+12. **Org hierarchy is supervisor-first and level-aware.** L1/L6 direction is inferred from reporting pairs; L3H is treated as a head band.
 
 ## Dashboard personalization IDs
 
