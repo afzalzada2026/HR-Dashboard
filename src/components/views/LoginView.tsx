@@ -1,181 +1,151 @@
 "use client";
 
-import { ArrowLeft, BarChart3, Globe2, HardDrive, Lock, MapPinned, ShieldCheck, Sparkles, Users } from "lucide-react";
+import { BarChart3, Eye, EyeOff, HardDrive, LockKeyhole, MapPinned, ShieldCheck, Sparkles, UserPlus } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import { LOCAL_ONLY } from "@/lib/mode";
-import { DEMO_USERS, ROLES } from "@/lib/rbac";
+import { type FormEvent, useEffect, useState } from "react";
+import { authenticateLocal, getLocalSession, localAuthStatus, setupLocalAdmin } from "@/lib/local-auth";
 import { logAudit } from "@/lib/storage";
-import type { Session } from "@/lib/types";
-import { useDataStore } from "@/store/data";
 import { hydrateUI, useUIStore } from "@/store/ui";
 import { Logo, LogoMark } from "../shell/Logo";
-import { Avatar, Button, Spinner } from "../ui/primitives";
+import { Button, Spinner } from "../ui/primitives";
 
-const DEFAULT_DIVISIONS = ["Operations", "Commercial", "Technology", "Corporate Services", "Finance", "Human Resources", "Executive Office"];
-
-function MicrosoftLogo() {
-  return (
-    <svg viewBox="0 0 23 23" className="h-5 w-5" aria-hidden>
-      <path fill="#f35325" d="M1 1h10v10H1z" />
-      <path fill="#81bc06" d="M12 1h10v10H12z" />
-      <path fill="#05a6f0" d="M1 12h10v10H1z" />
-      <path fill="#ffba08" d="M12 12h10v10H12z" />
-    </svg>
-  );
+interface SetupForm {
+  name: string;
+  username: string;
+  email: string;
+  password: string;
+  confirm: string;
 }
 
 export default function LoginView() {
   const router = useRouter();
-  const hydrated = useUIStore((s) => s.hydrated);
-  const theme = useUIStore((s) => s.theme);
-  const known = useDataStore((s) => s.divisions);
-  const [step, setStep] = useState<"start" | "pick" | "signing">("start");
-  const divisions = known.length ? known : DEFAULT_DIVISIONS;
-  const [division, setDivision] = useState(divisions[0]);
+  const hydrated = useUIStore((state) => state.hydrated);
+  const theme = useUIStore((state) => state.theme);
+  const [mode, setMode] = useState<"loading" | "setup" | "login">("loading");
+  const [showPassword, setShowPassword] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [setup, setSetup] = useState<SetupForm>({ name: "", username: "", email: "", password: "", confirm: "" });
 
-  useEffect(() => {
-    hydrateUI();
-  }, []);
+  useEffect(() => hydrateUI(), []);
   useEffect(() => {
     if (hydrated) document.documentElement.setAttribute("data-theme", theme);
   }, [hydrated, theme]);
+  useEffect(() => {
+    Promise.all([localAuthStatus(), getLocalSession()]).then(([status, session]) => {
+      if (session) {
+        useUIStore.getState().setSession(session);
+        router.replace("/");
+        return;
+      }
+      setMode(status.initialized ? "login" : "setup");
+    });
+  }, [router]);
 
-  const signIn = (u: Session, local = false) => {
-    setStep("signing");
-    const ui = useUIStore.getState();
-    const session: Session = u.role === "division_manager" ? { ...u, division } : u;
-    ui.setSession(session);
-    if (LOCAL_ONLY || local) ui.setStorageMode("local");
-    logAudit("auth.signed_in", "security", `${session.name} selected ${LOCAL_ONLY || local ? "a local profile" : "Azure AD SSO (demo tenant)"} as ${ROLES[session.role].label}`);
-    // The dashboard shell re-bootstraps on mount, applying the new role's row-level security.
-    setTimeout(() => router.push("/"), 600);
+  const login = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const session = await authenticateLocal(username, password);
+      useUIStore.getState().setSession(session);
+      useUIStore.getState().setStorageMode("local");
+      logAudit("auth.signed_in", "security", `${session.name} signed in to the local workspace`);
+      router.replace("/");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to sign in.");
+    } finally {
+      setBusy(false);
+    }
   };
 
+  const createAdmin = async (event: FormEvent) => {
+    event.preventDefault();
+    setError("");
+    if (setup.password !== setup.confirm) {
+      setError("Passwords do not match.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const session = await setupLocalAdmin({ name: setup.name, username: setup.username, email: setup.email, password: setup.password });
+      useUIStore.getState().setSession(session);
+      useUIStore.getState().setStorageMode("local");
+      logAudit("auth.workspace_initialized", "security", `${session.name} created the first local HR Admin account`);
+      router.replace("/");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to initialize the workspace.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const passwordType = showPassword ? "text" : "password";
   return (
-    <div className="grid min-h-screen lg:grid-cols-[1.1fr_1fr]">
+    <div className="grid min-h-screen lg:grid-cols-[1.08fr_1fr]">
       <div className="relative hidden flex-col justify-between overflow-hidden p-12 text-white lg:flex" style={{ background: "linear-gradient(150deg,#041E42 0%,#062B5B 45%,#0D47A1 100%)" }}>
         <div className="animate-orbit pointer-events-none absolute -top-40 -right-40 h-[520px] w-[520px] rounded-full border border-dashed border-white/10" />
         <div className="pointer-events-none absolute top-1/3 -right-20 h-80 w-80 rounded-full bg-[#00A8FF]/25 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-32 -left-20 h-80 w-80 rounded-full bg-white/10 blur-3xl" />
         <Logo />
         <div className="relative max-w-xl">
-          <p className="text-[12px] font-semibold tracking-[0.2em] text-[#7FD4FF] uppercase">HR Workforce Analytics & Intelligence</p>
-          <h1 className="mt-3 text-4xl leading-tight font-bold">Every employee, every province, every insight — in one executive portal.</h1>
-          <p className="mt-4 text-[15px] text-white/75">Power BI-grade dashboards, an interactive Afghanistan workforce map, AI-generated narratives and board-ready exports for ATOMA leadership.</p>
+          <p className="text-[12px] font-semibold tracking-[0.2em] text-[#7FD4FF] uppercase">Private browser workspace</p>
+          <h1 className="mt-3 text-4xl leading-tight font-bold">Your workforce file stays on this device.</h1>
+          <p className="mt-4 text-[15px] text-white/75">Excel/CSV parsing, dashboards, Afghanistan mapping, users, permissions and exports run locally in the browser. No employee row is uploaded.</p>
           <div className="mt-8 grid grid-cols-2 gap-3">
             {[
-              [<BarChart3 key="a" />, "20 KPIs & 18+ visuals"],
-              [<MapPinned key="b" />, "34-province heat map"],
-              [<Sparkles key="c" />, "AI insights engine"],
-              [<ShieldCheck key="d" />, "RBAC & audit logs"],
+              [<HardDrive key="a" />, "IndexedDB local storage"],
+              [<LockKeyhole key="b" />, "Password-protected profiles"],
+              [<MapPinned key="c" />, "34-province workforce map"],
+              [<BarChart3 key="d" />, "Executive analytics & exports"],
             ].map(([icon, label]) => (
               <div key={String(label)} className="flex items-center gap-2.5 rounded-xl bg-white/8 px-3 py-2.5 ring-1 ring-white/10 backdrop-blur [&_svg]:h-4 [&_svg]:w-4 [&_svg]:text-[#7FD4FF]">
-                {icon}
-                <span className="text-[13px] font-medium">{label}</span>
+                {icon}<span className="text-[13px] font-medium">{label}</span>
               </div>
             ))}
           </div>
-          <div className="animate-float mt-8 flex gap-3">
-            <div className="rounded-2xl bg-white/10 px-4 py-3 ring-1 ring-white/15 backdrop-blur">
-              <p className="text-[10px] tracking-wider text-white/60 uppercase">Total employees</p>
-              <p className="text-2xl font-bold">1,250</p>
-            </div>
-            <div className="rounded-2xl bg-white/10 px-4 py-3 ring-1 ring-white/15 backdrop-blur">
-              <p className="text-[10px] tracking-wider text-white/60 uppercase">Provinces</p>
-              <p className="text-2xl font-bold">34</p>
-            </div>
-            <div className="rounded-2xl bg-white/10 px-4 py-3 ring-1 ring-white/15 backdrop-blur">
-              <p className="text-[10px] tracking-wider text-white/60 uppercase">Female share</p>
-              <p className="text-2xl font-bold text-pink-200">22.7%</p>
-            </div>
-          </div>
         </div>
-        <p className="relative text-[11px] text-white/45">© ATOMA · Confidential · Enterprise HR Analytics Platform</p>
+        <p className="relative text-[11px] text-white/45">ATOMA · Local HR Workforce Intelligence · Protect this device and browser profile</p>
       </div>
 
       <div className="flex items-center justify-center p-5 sm:p-10">
         <div className="glass-strong animate-pop w-full max-w-md rounded-3xl p-7 sm:p-9">
-          <div className="mb-6 flex items-center gap-3 lg:hidden">
-            <LogoMark />
-            <span className="text-lg font-extrabold tracking-[0.2em] text-fg">ATOMA</span>
-          </div>
-          <h2 className="text-2xl font-bold text-fg">{LOCAL_ONLY ? "Open your local workspace" : "Sign in"}</h2>
-          <p className="mt-1 text-sm text-muted">{LOCAL_ONLY ? "No account or internet connection is required. Your HR file stays in this browser." : "Use your ATOMA Microsoft work account to continue."}</p>
+          <div className="mb-6 flex items-center gap-3 lg:hidden"><LogoMark /><span className="text-lg font-extrabold tracking-[0.2em] text-fg">ATOMA</span></div>
+          {mode === "loading" && <div className="flex min-h-72 flex-col items-center justify-center gap-3"><Spinner className="h-8 w-8 text-accent" /><p className="text-sm text-muted">Opening local workspace…</p></div>}
 
-          {step === "start" && (
-            <div className="mt-7 space-y-3">
-              <button type="button" onClick={() => setStep("pick")} className="flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-line-strong bg-surface-solid text-[14px] font-semibold text-fg shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md">
-                {LOCAL_ONLY ? <Users className="h-5 w-5 text-accent" /> : <MicrosoftLogo />} {LOCAL_ONLY ? "Choose a local profile" : "Sign in with Microsoft"}
-              </button>
-              <div className="flex items-center gap-3 py-1 text-[11px] text-subtle">
-                <span className="h-px flex-1 bg-line" /> or <span className="h-px flex-1 bg-line" />
-              </div>
-              <Button size="lg" className="w-full" onClick={() => signIn(DEMO_USERS[0], true)}>
-                <HardDrive /> {LOCAL_ONLY ? "Continue as HR Admin" : "Continue in local mode (no server)"}
-              </Button>
-              <div className="mt-4 grid grid-cols-3 gap-2 text-center text-[10.5px] text-muted">
-                <div className="rounded-lg bg-surface-muted p-2">
-                  <Lock className="mx-auto mb-1 h-4 w-4 text-accent" />
-                  SSO & MFA
-                </div>
-                <div className="rounded-lg bg-surface-muted p-2">
-                  <Users className="mx-auto mb-1 h-4 w-4 text-accent" />5 roles
-                </div>
-                <div className="rounded-lg bg-surface-muted p-2">
-                  <Globe2 className="mx-auto mb-1 h-4 w-4 text-accent" />
-                  Audit trail
-                </div>
-              </div>
-            </div>
+          {mode === "setup" && (
+            <>
+              <div className="grid h-12 w-12 place-items-center rounded-2xl bg-linear-to-br from-brand-700 to-brand-400 text-white"><UserPlus className="h-6 w-6" /></div>
+              <h2 className="mt-4 text-2xl font-bold text-fg">Create the first HR Admin</h2>
+              <p className="mt-1 text-sm text-muted">This one-time setup creates the administrator who can add other local users and assign their rights.</p>
+              <form onSubmit={createAdmin} className="mt-6 space-y-3">
+                <div><label className="text-[11px] font-semibold text-muted uppercase">Full name</label><input className="field mt-1" value={setup.name} onChange={(event) => setSetup({ ...setup, name: event.target.value })} autoComplete="name" required /></div>
+                <div><label className="text-[11px] font-semibold text-muted uppercase">Username</label><input className="field mt-1" value={setup.username} onChange={(event) => setSetup({ ...setup, username: event.target.value })} autoComplete="username" required /></div>
+                <div><label className="text-[11px] font-semibold text-muted uppercase">Email (optional)</label><input type="email" className="field mt-1" value={setup.email} onChange={(event) => setSetup({ ...setup, email: event.target.value })} autoComplete="email" /></div>
+                <div className="relative"><label className="text-[11px] font-semibold text-muted uppercase">Password</label><input type={passwordType} className="field mt-1 pr-10" value={setup.password} onChange={(event) => setSetup({ ...setup, password: event.target.value })} autoComplete="new-password" required /><button type="button" onClick={() => setShowPassword((value) => !value)} className="absolute right-3 bottom-2.5 text-muted" aria-label={showPassword ? "Hide password" : "Show password"}>{showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button></div>
+                <div><label className="text-[11px] font-semibold text-muted uppercase">Confirm password</label><input type={passwordType} className="field mt-1" value={setup.confirm} onChange={(event) => setSetup({ ...setup, confirm: event.target.value })} autoComplete="new-password" required /></div>
+                <p className="text-[11px] text-subtle">At least 10 characters, including uppercase, lowercase and a number.</p>
+                {error && <p role="alert" className="rounded-xl border border-danger/30 bg-danger/8 px-3 py-2 text-[12px] text-danger">{error}</p>}
+                <Button type="submit" variant="primary" size="lg" className="w-full" disabled={busy}>{busy ? <Spinner /> : <ShieldCheck />} Initialize secure workspace</Button>
+              </form>
+            </>
           )}
 
-          {step === "pick" && (
-            <div className="mt-6">
-              <button type="button" onClick={() => setStep("start")} className="mb-3 inline-flex items-center gap-1 text-[12px] font-medium text-muted hover:text-fg">
-                <ArrowLeft className="h-3.5 w-3.5" /> Back
-              </button>
-              <p className="mb-2 text-[12px] font-semibold text-muted">{LOCAL_ONLY ? "Choose a local access profile (stored only on this device)" : "Pick an account · atoma.af demo tenant"}</p>
-              <div className="space-y-2">
-                {DEMO_USERS.map((u) => (
-                  <div key={u.userId} className="rounded-xl border border-line transition-colors hover:border-accent/50">
-                    <button type="button" onClick={() => signIn(u)} className="flex w-full items-center gap-3 px-3 py-2.5 text-left">
-                      <Avatar name={u.name} size={36} />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[13px] font-semibold text-fg">{u.name}</span>
-                        <span className="block truncate text-[11.5px] text-muted">{u.email}</span>
-                      </span>
-                      <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold text-white" style={{ background: ROLES[u.role].color }}>
-                        {ROLES[u.role].label}
-                      </span>
-                    </button>
-                    {u.role === "division_manager" && (
-                      <div className="flex items-center gap-2 border-t border-line px-3 py-2">
-                        <span className="text-[11px] text-muted">Division scope</span>
-                        <select className="field h-8 flex-1 text-xs" value={division} onChange={(e) => setDivision(e.target.value)}>
-                          {divisions.map((d) => (
-                            <option key={d} value={d}>
-                              {d}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
+          {mode === "login" && (
+            <>
+              <div className="grid h-12 w-12 place-items-center rounded-2xl bg-linear-to-br from-brand-700 to-brand-400 text-white"><LockKeyhole className="h-6 w-6" /></div>
+              <h2 className="mt-4 text-2xl font-bold text-fg">Sign in to ATOMA</h2>
+              <p className="mt-1 text-sm text-muted">Use the local username and password assigned by your HR Admin.</p>
+              <form onSubmit={login} className="mt-6 space-y-4">
+                <div><label className="text-[11px] font-semibold text-muted uppercase">Username</label><input className="field mt-1 h-11" value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" autoFocus required /></div>
+                <div className="relative"><label className="text-[11px] font-semibold text-muted uppercase">Password</label><input type={passwordType} className="field mt-1 h-11 pr-10" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required /><button type="button" onClick={() => setShowPassword((value) => !value)} className="absolute right-3 bottom-3 text-muted" aria-label={showPassword ? "Hide password" : "Show password"}>{showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button></div>
+                {error && <p role="alert" className="rounded-xl border border-danger/30 bg-danger/8 px-3 py-2 text-[12px] text-danger">{error}</p>}
+                <Button type="submit" variant="primary" size="lg" className="w-full" disabled={busy}>{busy ? <Spinner /> : <LockKeyhole />} Sign in</Button>
+              </form>
+              <div className="mt-5 rounded-xl bg-surface-muted p-3 text-[11.5px] text-muted"><Sparkles className="mr-1 inline h-3.5 w-3.5 text-accent" />Credentials are salted and hashed with PBKDF2-SHA256. The active login lasts for this browser tab/session.</div>
+            </>
           )}
-
-          {step === "signing" && (
-            <div className="mt-10 flex flex-col items-center gap-3 py-8">
-              <Spinner className="h-8 w-8 text-accent" />
-              <p className="text-sm font-medium text-fg">Signing you in…</p>
-              <p className="text-xs text-muted">Applying role permissions and data scope</p>
-            </div>
-          )}
-
-          <p className="mt-8 text-[11px] leading-relaxed text-subtle">{LOCAL_ONLY ? "Privacy note: uploaded rows, local audit history, schedules, filters and layout preferences are stored in this browser only. Local profiles organize views but are not an authentication boundary." : "Azure AD / Microsoft Entra ID sign-in runs against a demo tenant in this environment. Configure the documented production proxy for real SSO."}</p>
         </div>
       </div>
     </div>

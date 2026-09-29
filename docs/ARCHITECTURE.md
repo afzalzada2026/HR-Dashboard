@@ -3,11 +3,16 @@
 ## 1. System context
 
 ```text
-Browser
+Browser (default local-first runtime)
   ├─ Next.js App Router UI (React 19, Tailwind 4, Zustand)
   ├─ ECharts visuals + Afghanistan GeoJSON
-  ├─ Local mode: IndexedDB via idb-keyval
-  └─ Enterprise mode: JSON API
+  ├─ Excel/CSV parsing, analytics and exports
+  ├─ IndexedDB: users, password hashes, datasets, employees, audit, report reminders
+  ├─ sessionStorage: active authenticated user ID
+  └─ no employee-data API calls
+
+Optional enterprise build (`NEXT_PUBLIC_ATOMA_LOCAL_ONLY=false`)
+  └─ JSON API
           │
           ▼
 Identity-aware reverse proxy (production only)
@@ -132,12 +137,23 @@ Schedule definition, status, next/last run, and run counter.
 
 Schema is declared in `src/db/schema.ts`; `src/db/ensure.ts` provides idempotent bootstrap. Production deployments should use controlled Drizzle migrations rather than relying only on runtime DDL.
 
-## 6. Authentication and production role assignment
+## 6. Authentication and role assignment
 
-### Modes
+### Browser-local accounts (default)
 
-- `ATOMA_AUTH_MODE=demo` (default): browser role cookie and account switcher; development/demo only.
-- `ATOMA_AUTH_MODE=production` or `proxy`: browser cookie is ignored; the server requires validated proxy headers.
+1. First launch redirects to `/login` and creates the first HR Admin.
+2. Password policy: at least 10 characters with uppercase, lowercase and a number.
+3. Passwords use a random 16-byte salt and PBKDF2-SHA256 with 210,000 iterations; plaintext is never stored.
+4. Users and hashes are stored in IndexedDB; active user ID is in sessionStorage.
+5. HR Admin manages users from **Security → Local users & access**: create, role/division assignment, activate/deactivate, password reset and delete.
+6. Self-deactivation, self-demotion, self-delete and removal of the last active HR Admin are blocked.
+7. Five failed attempts trigger a 30-second local lockout.
+
+Browser-local accounts protect normal UI access but are device/profile-specific and cannot resist an attacker who controls the OS/browser developer tools. Use OS login, disk encryption and a dedicated browser profile.
+
+### Optional enterprise/Entra mode
+
+Set `NEXT_PUBLIC_ATOMA_LOCAL_ONLY=false` and `ATOMA_AUTH_MODE=production` or `proxy`. The browser cookie is ignored and the server requires validated proxy headers.
 
 ### Entra app roles
 
@@ -211,10 +227,11 @@ Missing division causes a 401 in production. The API filters employee rows befor
 ## 9. Organization hierarchy architecture
 
 - `canonicalOrgLevel()` recognizes L1/L2/L3/L3H/L4/L5/L6 variants.
-- `organizationLevelProfile()` compares employee/supervisor band numbers to infer L1-senior vs L6-senior and reports confidence.
-- CEO/division/department heads are resolved from inferred seniority + title + direct-report evidence.
+- Fixed hierarchy is L6 → L5 → L4 → L3H → L3 → L2 → L1.
+- `organizationLevelProfile()` reports how consistently actual supervisor links follow the configured order.
+- CEO/division/department heads are resolved from fixed seniority + title + direct-report evidence.
 - Department employees form recursive nodes from actual supervisor links; malformed cycles are removed.
-- UI scopes the complete tree by Division, then Department, preserving higher leadership context.
+- UI scopes Division first, then Department. A selected division renders horizontal seven-level lanes while preserving reporting details.
 
 ## 10. Afghanistan map architecture
 

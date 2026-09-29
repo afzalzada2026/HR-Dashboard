@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  Bell, Camera, Check, ChevronRight, FileDown, FileSpreadsheet, FileText, Filter, Image as ImageIcon, Lock, LogOut, Menu, Moon, Palette, Search, ShieldCheck, Sun, Trash2, UserRound,
+  Bell, Camera, Check, ChevronRight, FileDown, FileSpreadsheet, FileText, Filter, Image as ImageIcon, Lock, LogOut, Menu, Moon, Palette, Search, ShieldCheck, Sun, Trash2,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -9,10 +9,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { EMPLOYEE_COLUMNS, exportCSV, exportExecutivePDF, exportPNG, exportSnapshot, exportViewPDF, exportWorkbook } from "@/lib/exporters";
 import { activeFilterCount, describeFilters } from "@/lib/filters";
 import { cn, fmtDateTime, timestampSlug } from "@/lib/format";
+import { signOutLocal } from "@/lib/local-auth";
 import { LOCAL_ONLY } from "@/lib/mode";
-import { can, DEMO_USERS, ROLES } from "@/lib/rbac";
+import { can, ROLES } from "@/lib/rbac";
 import { logAudit } from "@/lib/storage";
-import type { Session, Theme } from "@/lib/types";
+import type { Theme } from "@/lib/types";
 import { useDataStore } from "@/store/data";
 import { useUIStore } from "@/store/ui";
 import { Avatar, Badge, Button, MenuItem, Modal, Popover, Spinner } from "../ui/primitives";
@@ -279,20 +280,9 @@ function NotificationMenu() {
   );
 }
 
-export function switchAccount(u: Session): void {
-  const ui = useUIStore.getState();
-  const data = useDataStore.getState();
-  const session: Session = u.role === "division_manager" ? { ...u, division: u.division && data.divisions.includes(u.division) ? u.division : data.divisions[0] ?? u.division } : u;
-  ui.setSession(session);
-  logAudit("auth.role_switched", "security", `${session.name} signed in as ${ROLES[session.role].label}${session.division ? ` (${session.division})` : ""}`);
-  void data.reload();
-  ui.notify("info", `Signed in as ${session.name}`, `${ROLES[session.role].label}${session.division ? ` · scope: ${session.division}` : ""}`);
-}
-
 function UserMenu() {
   const [open, setOpen] = useState(false);
   const session = useUIStore((s) => s.session);
-  const divisions = useDataStore((s) => s.divisions);
   const router = useRouter();
   const role = ROLES[session.role];
   return (
@@ -322,34 +312,7 @@ function UserMenu() {
           </span>
         </div>
       </div>
-      <p className="px-2.5 pt-2.5 pb-1 text-[10px] font-semibold tracking-wider text-subtle uppercase">{LOCAL_ONLY ? "Switch local profile" : "Switch account · Azure AD (demo)"}</p>
-      {DEMO_USERS.map((u) => (
-        <MenuItem
-          key={u.userId}
-          icon={<UserRound />}
-          active={u.userId === session.userId}
-          hint={ROLES[u.role].label}
-          onClick={() => {
-            setOpen(false);
-            switchAccount(u);
-          }}
-        >
-          {u.name}
-        </MenuItem>
-      ))}
-      {session.role === "division_manager" && divisions.length > 0 && (
-        <div className="px-2.5 py-2">
-          <label className="text-[10.5px] font-semibold text-subtle uppercase">Division scope</label>
-          <select className="field mt-1 h-8 text-xs" value={session.division ?? ""} onChange={(e) => switchAccount({ ...session, division: e.target.value })}>
-            {divisions.map((d) => (
-              <option key={d} value={d}>
-                {d}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
-      <div className="mt-1 border-t border-line pt-1">
+      <div className="mt-1 pt-1">
         <Link href="/security" onClick={() => setOpen(false)}>
           <MenuItem icon={<ShieldCheck />}>Security & permissions</MenuItem>
         </Link>
@@ -358,6 +321,10 @@ function UserMenu() {
           danger
           onClick={() => {
             logAudit("auth.signed_out", "security", session.name);
+            if (LOCAL_ONLY) {
+              signOutLocal();
+              useDataStore.setState({ status: "idle", dataset: null, employees: [], filtered: [], message: "" });
+            }
             router.push("/login");
           }}
         >

@@ -4,12 +4,12 @@ import { Check, Cloud, Database, EyeOff, FileClock, HardDrive, KeyRound, Lock, L
 import { useCallback, useEffect, useState } from "react";
 import { cn, fmtDateTime, fmtNum } from "@/lib/format";
 import { LOCAL_ONLY } from "@/lib/mode";
-import { can, DEMO_USERS, PERMISSIONS, ROLE_ORDER, ROLE_PERMISSIONS, ROLES } from "@/lib/rbac";
+import { can, PERMISSIONS, ROLE_ORDER, ROLE_PERMISSIONS, ROLES } from "@/lib/rbac";
 import { listLocalReports, localAdapter, queryLocalAudit } from "@/lib/storage";
 import type { AuditLog } from "@/lib/types";
 import { useDataStore } from "@/store/data";
 import { useUIStore } from "@/store/ui";
-import { switchAccount } from "../shell/Topbar";
+import { UserManagement } from "../admin/UserManagement";
 import { Avatar, Badge, Button, Card, CardTitle, EmptyState, PageHeader, Spinner } from "../ui/primitives";
 
 interface SystemInfo {
@@ -189,7 +189,7 @@ export default function SecurityView() {
   return (
     <>
       <PageHeader eyebrow="Administration" title="Privacy, profiles & local audit" icon={<ShieldCheck />} subtitle={LOCAL_ONLY ? "Browser-only operation: no employee data is transmitted to a server" : "Azure AD sign-in, role-based access control, permission policies and audit logging"} />
-      <div className="grid gap-4 xl:grid-cols-3">
+      <div className="grid gap-4 xl:grid-cols-2">
         <Card className="animate-fade-up">
           <CardTitle icon={<UserCheck />} title="Current session" />
           <div className="flex items-center gap-3">
@@ -251,24 +251,9 @@ export default function SecurityView() {
             ))}
           </div>
         </Card>
-        <Card className="animate-fade-up">
-          <CardTitle icon={<Users />} title={LOCAL_ONLY ? "Switch local profile" : "Switch account"} subtitle={LOCAL_ONLY ? "Convenience profiles only — not authentication" : "Demo tenant — one account per role"} />
-          <div className="space-y-1.5">
-            {DEMO_USERS.map((u) => (
-              <button key={u.userId} type="button" onClick={() => switchAccount(u)} className={cn("flex w-full items-center gap-2.5 rounded-xl border px-2.5 py-2 text-left transition-colors", u.userId === session.userId ? "border-accent/50 bg-accent/8" : "border-line hover:bg-surface-muted")}>
-                <Avatar name={u.name} size={30} />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[12.5px] font-semibold text-fg">{u.name}</span>
-                  <span className="block truncate text-[11px] text-muted">{u.email}</span>
-                </span>
-                <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold text-white" style={{ background: ROLES[u.role].color }}>
-                  {ROLES[u.role].label}
-                </span>
-              </button>
-            ))}
-          </div>
-        </Card>
       </div>
+
+      <div className="mt-4"><UserManagement /></div>
 
       <Card className="animate-fade-up mt-4">
         <CardTitle icon={<ShieldCheck />} title="Role-based access control" subtitle="Permission matrix · your current role is highlighted" />

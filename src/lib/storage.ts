@@ -1,7 +1,8 @@
 import { del as idbDel, get as idbGet, set as idbSet } from "idb-keyval";
+import { getLocalSession } from "./local-auth";
 import { LOCAL_ONLY } from "./mode";
 import { computeNextRun, type Frequency } from "./schedule";
-import type { AuditLog, DatasetMeta, DatasetPayload, Employee, ScheduledReport, Session, StorageMode } from "./types";
+import type { AuditLog, DatasetMeta, DatasetPayload, Employee, ScheduledReport, StorageMode } from "./types";
 import { safeText } from "./validation";
 
 export interface LoadedDataset {
@@ -131,18 +132,8 @@ export const getAdapter = (mode: StorageMode): StorageAdapter => (LOCAL_ONLY || 
 const AUDIT_KEY = "atoma:audit:v1";
 const REPORTS_KEY = "atoma:reports:v1";
 
-function localSession(): Session | null {
-  if (typeof localStorage === "undefined") return null;
-  try {
-    const stored = JSON.parse(localStorage.getItem("atoma-ui") || "{}") as { state?: { session?: Session } };
-    return stored.state?.session ?? null;
-  } catch {
-    return null;
-  }
-}
-
 export async function appendLocalAudit(action: string, category: string, details = ""): Promise<void> {
-  const session = localSession();
+  const session = await getLocalSession();
   const current = (await idbGet<AuditLog[]>(AUDIT_KEY)) ?? [];
   const nextId = (current[0]?.id ?? 0) + 1;
   const event: AuditLog = {

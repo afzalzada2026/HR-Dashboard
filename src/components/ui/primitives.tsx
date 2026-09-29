@@ -1,7 +1,7 @@
 "use client";
 
 import { X } from "lucide-react";
-import { type ButtonHTMLAttributes, type ReactNode, useEffect, useRef } from "react";
+import { type ButtonHTMLAttributes, type CSSProperties, type ReactNode, useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { cn, hashHue, initials } from "@/lib/format";
 
@@ -103,24 +103,65 @@ export function Badge({ tone = "neutral", children, className }: { tone?: Tone; 
 /* ---------------------------------------------------------------- Tooltip */
 
 export function Tooltip({ content, children, side = "top", className }: { content: ReactNode; children: ReactNode; side?: "top" | "bottom" | "left" | "right"; className?: string }) {
-  const pos = {
-    top: "bottom-full left-1/2 -translate-x-1/2 mb-2",
-    bottom: "top-full left-1/2 -translate-x-1/2 mt-2",
-    left: "right-full top-1/2 -translate-y-1/2 mr-2",
-    right: "left-full top-1/2 -translate-y-1/2 ml-2",
-  }[side];
+  const trigger = useRef<HTMLSpanElement>(null);
+  const [open, setOpen] = useState(false);
+  const [style, setStyle] = useState<CSSProperties>({});
+  const id = useId();
+  const position = useCallback(() => {
+    const rect = trigger.current?.getBoundingClientRect();
+    if (!rect) return;
+    const gap = 9;
+    const half = Math.min(170, Math.max(80, (window.innerWidth - 24) / 2));
+    const centerX = Math.max(half + 12, Math.min(window.innerWidth - half - 12, rect.left + rect.width / 2));
+    const centerY = Math.max(48, Math.min(window.innerHeight - 48, rect.top + rect.height / 2));
+    const effectiveSide = side === "top" && rect.top < 110 ? "bottom" : side === "bottom" && window.innerHeight - rect.bottom < 110 ? "top" : side;
+    if (effectiveSide === "top") setStyle({ left: centerX, top: rect.top - gap, transform: "translate(-50%, -100%)" });
+    else if (effectiveSide === "bottom") setStyle({ left: centerX, top: rect.bottom + gap, transform: "translate(-50%, 0)" });
+    else if (effectiveSide === "left") setStyle({ left: rect.left - gap, top: centerY, transform: "translate(-100%, -50%)" });
+    else setStyle({ left: rect.right + gap, top: centerY, transform: "translate(0, -50%)" });
+  }, [side]);
+  const show = () => {
+    position();
+    setOpen(true);
+  };
+  useEffect(() => {
+    if (!open) return;
+    const update = () => position();
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [open, position]);
   return (
-    <span className={cn("group/tt relative inline-flex", className)}>
+    <span
+      ref={trigger}
+      className={cn("relative inline-flex cursor-help", className)}
+      tabIndex={0}
+      aria-describedby={open ? id : undefined}
+      onMouseEnter={show}
+      onMouseLeave={() => setOpen(false)}
+      onFocus={show}
+      onBlur={() => setOpen(false)}
+      onClick={(event) => {
+        event.stopPropagation();
+        if (open) setOpen(false);
+        else show();
+      }}
+    >
       {children}
-      <span
-        role="tooltip"
-        className={cn(
-          "pointer-events-none absolute z-[90] w-max max-w-[260px] rounded-lg bg-[#0b1b33] px-2.5 py-1.5 text-[11px] leading-snug font-medium text-white opacity-0 shadow-xl transition-opacity duration-150 group-hover/tt:opacity-100 dark:bg-[#e6eef8] dark:text-[#0b1b33]",
-          pos
-        )}
-      >
-        {content}
-      </span>
+      {open && typeof document !== "undefined" && createPortal(
+        <span
+          id={id}
+          role="tooltip"
+          className="pointer-events-none fixed z-[120] w-max max-w-[min(340px,calc(100vw-24px))] rounded-xl border border-white/10 bg-[#0b1b33] px-3 py-2 text-left text-[11.5px] leading-relaxed font-medium whitespace-normal text-white shadow-2xl dark:border-slate-700 dark:bg-[#e6eef8] dark:text-[#0b1b33]"
+          style={style}
+        >
+          {content}
+        </span>,
+        document.body
+      )}
     </span>
   );
 }

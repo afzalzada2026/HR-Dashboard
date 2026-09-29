@@ -34,15 +34,7 @@ export function can(role: Role, perm: Permission): boolean {
   return ROLE_PERMISSIONS[role]?.includes(perm) ?? false;
 }
 
-export const DEMO_USERS: Session[] = [
-  { userId: "u-admin", name: "Mariam Karimi", email: "mariam.karimi@atoma.af", role: "hr_admin" },
-  { userId: "u-officer", name: "Farid Ahmadzai", email: "farid.ahmadzai@atoma.af", role: "hr_officer" },
-  { userId: "u-exec", name: "Hamid Sultani", email: "hamid.sultani@atoma.af", role: "executive" },
-  { userId: "u-divmgr", name: "Nasir Popal", email: "nasir.popal@atoma.af", role: "division_manager", division: "Operations" },
-  { userId: "u-viewer", name: "Laila Noori", email: "laila.noori@atoma.af", role: "viewer" },
-];
-
-export const DEFAULT_SESSION: Session = DEMO_USERS[0];
+export const DEFAULT_SESSION: Session = { userId: "local-pending", name: "Local user", email: "", role: "viewer" };
 export const SESSION_COOKIE = "atoma_session";
 
 export function encodeSession(s: Session): string {

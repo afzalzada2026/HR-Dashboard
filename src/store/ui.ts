@@ -124,7 +124,7 @@ export const useUIStore = create<UIState>()(
       partialize: (s) => ({
         theme: s.theme,
         storageMode: s.storageMode,
-        session: s.session,
+        ...(!LOCAL_ONLY ? { session: s.session } : {}),
         sidebarCollapsed: s.sidebarCollapsed,
         notifications: s.notifications.slice(0, 20),
         hiddenWidgets: s.hiddenWidgets,

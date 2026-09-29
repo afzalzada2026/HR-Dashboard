@@ -125,7 +125,9 @@ Chart clicks cross-filter the entire application. Charts support table mode, foc
 - CEO → division → department → employee reporting structure.
 - Cascading local selectors: Division first, then only departments available in that division.
 - Canonical company bands: L1, L2, L3, L3H, L4, L5, L6.
-- Seniority direction (L1-senior or L6-senior) is inferred from actual supervisor relationships rather than hardcoded.
+- Fixed ATOMA top-to-bottom bands: L6 → L5 → L4 → L3H → L3 → L2 → L1.
+- Selecting a division switches to a horizontal seven-lane chart ordered left-to-right from L6 leadership to L1 foundation; Department further scopes those lanes.
+- Supervisor relationships are measured against the configured hierarchy and displayed as a data-consistency percentage.
 - L3H receives head-band priority when resolving department heads.
 - Actual supervisor links are primary; bands, titles and direct-report counts resolve leaders and missing links.
 - Search, zoom, pan, recursive expand/collapse, paged top branches, and profile drill-through.
@@ -153,16 +155,17 @@ Chart clicks cross-filter the entire application. Charts support table mode, foc
 
 ## 5. Security requirements
 
-- Production must set `ATOMA_AUTH_MODE=production` (or `proxy`).
-- Production must not expose the Next.js upstream directly.
-- An identity-aware reverse proxy must validate Microsoft Entra tokens and inject authenticated identity/role headers with `ATOMA_PROXY_SECRET`.
-- API handlers fail with 401 when proxy identity is absent/invalid in production mode.
-- API permission checks enforce upload, delete, report, audit, and export capabilities.
-- Division Manager row-level filtering and Viewer PII masking happen server-side before records are returned.
+- Browser-only default requires first-run HR Admin setup and username/password login.
+- Passwords use per-user random salt and PBKDF2-SHA256 (210,000 iterations); plaintext is never stored.
+- Active identity is session-only; local users/rights remain in IndexedDB on that browser profile.
+- HR Admin manages account creation, roles, division scope, active state, deletion and password resets.
+- Last-admin, self-delete, self-deactivate and self-demotion safeguards apply.
+- Five failed login attempts trigger a temporary local lockout.
+- Client role checks enforce upload, delete, reporting, audit and export capabilities; Division Manager scope and Viewer masking are applied before analytics.
 - Security headers include CSP, frame denial, MIME sniffing prevention, restricted referrer and permissions policies.
-- Uploads are bounded, selected field-by-field, sanitized, and canonicalized server-side.
-- Audit events record user, role, category, action, IP, and timestamp.
-- Demo role cookies are explicitly non-production behavior.
+- Excel/CSV files are bounded, sanitized and canonicalized in the browser; server data APIs are disabled in local-only builds.
+- Local audit events stay on the device.
+- Optional centralized Entra mode must set `NEXT_PUBLIC_ATOMA_LOCAL_ONLY=false`, `ATOMA_AUTH_MODE=production`, and use a token-validating private reverse proxy with `ATOMA_PROXY_SECRET`.
 
 ## 6. Non-functional requirements
 
@@ -189,7 +192,7 @@ Chart clicks cross-filter the entire application. Charts support table mode, foc
 
 ## 8. Known production integration work
 
-- Connect a real Entra OIDC/token-validating proxy or Auth.js callback; demo login is not authentication.
+- Browser-only mode now provides local username/password accounts. For centralized multi-device production identity, optionally connect the documented Entra OIDC/token-validating proxy.
 - Connect scheduled report delivery to a queue/mail service.
 - For very large datasets or many concurrent tenants, normalize employee JSONB arrays into indexed relational rows/materialized aggregates.
 - Establish backup, retention, monitoring, and incident-response processes.

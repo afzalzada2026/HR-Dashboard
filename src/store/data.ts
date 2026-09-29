@@ -95,7 +95,7 @@ export const useDataStore = create<DataState>()((set, get) => ({
           get().setDataset(res.dataset, []);
           return;
         }
-        await get().loadDemo(1250);
+        set({ status: "empty", message: "", dataset: null, employees: [], filtered: [], filters: EMPTY_FILTERS, now: Date.now() });
       } catch (err) {
         if (ui.storageMode === "server") {
           ui.notify("warning", "Server storage unavailable", "Switched to local browser storage (no server mode).");
@@ -119,7 +119,7 @@ export const useDataStore = create<DataState>()((set, get) => ({
     try {
       const res = await getAdapter(ui.storageMode).getActive();
       if (res) get().setDataset(res.dataset, res.employees);
-      else await get().loadDemo(1250);
+      else set({ status: "empty", message: "", dataset: null, employees: [], filtered: [], filters: EMPTY_FILTERS, now: Date.now() });
     } catch (err) {
       set({ status: "error", message: err instanceof Error ? err.message : "Failed to load dataset" });
     }

@@ -73,6 +73,10 @@ Legend: `[x]` complete, `[ ]` backlog, `[!]` production dependency/decision.
 ## Security and sanitation
 
 - [x] Five-role RBAC and permission matrix.
+- [x] First-run local HR Admin account setup.
+- [x] PBKDF2-SHA256 salted local password hashing and session-only login.
+- [x] HR Admin user CRUD, role/division assignment, activation and password reset.
+- [x] Five-attempt temporary login lockout and last-admin safeguards.
 - [x] Division Manager server-side row-level filtering.
 - [x] Viewer server-side PII masking.
 - [x] Dataset/report/audit API permission checks.

@@ -28,12 +28,12 @@ This file is a concise handoff for future maintainers and AI coding sessions. Re
 4. **One chart engine.** ECharts also handles the Afghanistan map; Leaflet/Plotly are intentionally not installed.
 5. **Map never guesses.** Unknown province remains Unknown and is counted. Kabul is not a fallback.
 6. **Personalization stores hidden IDs.** Default is show all. Key is `<userId>:<page>`; stable IDs are a compatibility contract.
-7. **Demo auth is not auth.** Browser cookie supports role demonstrations only. Production uses validated proxy headers and secret.
-8. **Role source in production is Entra app roles.** Do not use Entra tenant administrator roles as application permissions.
+7. **Browser-local authentication is implemented.** First-run HR Admin, PBKDF2 password hashes, session-only login and real local user/rights administration live in IndexedDB/sessionStorage.
+8. **Optional centralized identity uses Entra app roles.** Do not use Entra tenant administrator roles as application permissions.
 9. **Remarks-derived HR signals.** Turnover/promotion are inferred only because the source schema lacks authoritative events. Replace when fields become available.
 10. **Exports respect security scope and filters.** View snapshots reflect hidden widgets; structured workbook contains all approved filtered columns.
 11. **Capture is full-scroll/high-DPI.** Do not replace the readiness/safe-scale/PNG-slice pipeline with a simple viewport JPEG capture.
-12. **Org hierarchy is supervisor-first and level-aware.** L1/L6 direction is inferred from reporting pairs; L3H is treated as a head band.
+12. **Org hierarchy is supervisor-first and level-aware.** The fixed order is L6 → L5 → L4 → L3H → L3 → L2 → L1. Divisional scope uses a horizontal seven-lane view; L3H is treated as a head band.
 
 ## Dashboard personalization IDs
 
@@ -74,34 +74,19 @@ Do not rename IDs without migrating `atoma-ui.hiddenWidgets` preferences.
 - `validateEmployeeMapCoverage()` checks normalized employee values.
 - Imported data is mapped in the browser and recalculated again by API sanitation.
 
-## Security modes
+## Browser-local login and rights
 
-### Demo/default
+- First run at `/login` creates the initial HR Admin username/password.
+- Passwords use per-user salt + PBKDF2-SHA256 (210,000 iterations) in IndexedDB.
+- Active identity is stored in `sessionStorage` and ends with the browser session.
+- Security page contains real local user CRUD; no dummy users are displayed.
+- HR Admin assigns HR Admin / Officer / Executive / Division Manager / Viewer; Division Manager requires a division.
+- Five failures create a 30-second local lockout; last active admin and self-demotion/deactivation are blocked.
+- Accounts are specific to that browser profile and device.
 
-- `ATOMA_AUTH_MODE=demo` or unset.
-- Role-switch cookie accepted.
-- Suitable only for development, demonstrations, and this preview.
+## Optional enterprise identity
 
-### Production/proxy
-
-- `ATOMA_AUTH_MODE=production` or `proxy`.
-- Requires `ATOMA_PROXY_SECRET` (minimum 32 chars).
-- Required trusted headers documented in `ARCHITECTURE.md`.
-- Missing/invalid identity is 401.
-- Division Manager without division is 401.
-- Proxy must validate Entra token and make Next upstream private.
-
-## Role assignment reminder
-
-Create Entra app-role values exactly:
-
-- `Atoma.HRAdmin`
-- `Atoma.HROfficer`
-- `Atoma.Executive`
-- `Atoma.DivisionManager`
-- `Atoma.Viewer`
-
-Assign in Entra **Enterprise applications → ATOMA → Users and groups**. The proxy forwards roles claim. Highest role wins if multiple are present.
+For centralized multi-device access, build enterprise mode and configure Entra app roles: `Atoma.HRAdmin`, `Atoma.HROfficer`, `Atoma.Executive`, `Atoma.DivisionManager`, `Atoma.Viewer`. Assign them in **Enterprise applications → ATOMA → Users and groups** and use the trusted proxy contract in `ARCHITECTURE.md`.
 
 ## Validation status and commands
 

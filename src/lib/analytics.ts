@@ -589,7 +589,7 @@ function levelNumber(code: OrgLevelCode): number {
   return Number(code[1]);
 }
 
-/** Infers band direction from actual supervisor relationships instead of assuming L1 or L6 is senior. */
+/** Applies ATOMA's fixed L6→L1 hierarchy and measures how well supervisor links agree with it. */
 export function organizationLevelProfile(emps: Employee[]): OrganizationLevelProfile {
   const counts = Object.fromEntries(ORG_LEVELS.map((level) => [level, 0])) as Record<OrgLevelCode, number>;
   for (const employee of emps) {
@@ -610,11 +610,9 @@ export function organizationLevelProfile(emps: Employee[]): OrganizationLevelPro
     else if (supervisorNumber > employeeNumber) higherSupervisor++;
   }
   const evidence = lowerSupervisor + higherSupervisor;
-  const direction: LevelDirection = lowerSupervisor >= higherSupervisor ? "l1-senior" : "l6-senior";
-  const sequence: OrgLevelCode[] = direction === "l1-senior"
-    ? ["L1", "L2", "L3", "L3H", "L4", "L5", "L6"]
-    : ["L6", "L5", "L4", "L3H", "L3", "L2", "L1"];
-  return { direction, evidence, confidence: evidence ? Math.max(lowerSupervisor, higherSupervisor) / evidence : 0, sequence, counts };
+  const direction: LevelDirection = "l6-senior";
+  const sequence: OrgLevelCode[] = ["L6", "L5", "L4", "L3H", "L3", "L2", "L1"];
+  return { direction, evidence, confidence: evidence ? higherSupervisor / evidence : 0, sequence, counts };
 }
 
 function seniority(employee: Employee, profile: OrganizationLevelProfile): number {

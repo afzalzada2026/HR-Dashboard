@@ -43,6 +43,17 @@ Preference key `<userId>:<page>`. Store hidden IDs. Ignore stale IDs. Support Sh
 
 Canonical list and GeoJSON must both contain exactly 34 matching names. Mapping precedence: province/region → duty station → Unknown. Unicode normalization must support Dari/Pashto and common transliterations. New aliases require regression checks. Coverage must be disclosed.
 
+## Browser-local authentication
+
+- First launch requires creation of one HR Admin username/password.
+- Passwords are salted and hashed with PBKDF2-SHA256 (210,000 iterations); plaintext passwords are never stored.
+- Authenticated user ID is held in `sessionStorage` and expires when the browser session is closed.
+- Five failed logins trigger a 30-second local lockout.
+- Only HR Admin creates users, assigns roles/division scope, activates/deactivates, deletes, or resets another password.
+- A user cannot deactivate/delete themselves or remove their own HR Admin role; at least one active HR Admin must remain.
+- Credentials and user records remain in IndexedDB on that browser profile. They do not synchronize between devices.
+- Because code and data share one browser, this protects normal access but cannot defend against someone with OS/browser developer access. Protect the device and browser profile.
+
 ## Roles
 
 | Capability | Admin | Officer | Executive | Division Manager | Viewer |

@@ -69,7 +69,7 @@ Sticky header/frozen first column, 52 px employee rows, global + column search, 
 
 ## Accessibility
 
-Every icon action has a label/tooltip. Dialog semantics and Escape close. Switch semantics. Enter/Space support for interactive rows. Avoid color-only status. Provide chart table alternatives. Preserve contrast in all themes.
+Every icon action has a label/tooltip. Info tooltips render through a body portal so card overflow cannot clip them; they open on hover, keyboard focus and tap, and wrap up to 340 px. Dialog semantics and Escape close. Switch semantics. Enter/Space support for interactive rows. Avoid color-only status. Provide chart table alternatives. Preserve contrast in all themes.
 
 ## Export styling
 
