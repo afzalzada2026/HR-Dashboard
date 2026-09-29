@@ -579,10 +579,12 @@ const DEPT_HEAD_RE = /head|manager|director|lead/i;
 /** Normalizes forms such as L3H, L-3-H, Level 3H and "L4 - Senior". */
 export function canonicalOrgLevel(value: string): OrgLevelCode | null {
   const normalized = value.toUpperCase().replace(/LEVEL/g, "L").replace(/[^A-Z0-9]/g, "");
-  const match = normalized.match(/^L?([1-6])(H)?/);
+  const match = normalized.match(/^L?(\d{1,2})(H)?/);
   if (!match) return null;
-  if (match[1] === "3" && match[2]) return "L3H";
-  return `L${match[1]}` as OrgLevelCode;
+  const number = Number(match[1]);
+  if (number < 1 || number > 6) return null;
+  if (number === 3 && match[2]) return "L3H";
+  return `L${number}` as OrgLevelCode;
 }
 
 function levelNumber(code: OrgLevelCode): number {

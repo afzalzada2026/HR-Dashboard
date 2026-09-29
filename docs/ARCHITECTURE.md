@@ -231,7 +231,8 @@ Missing division causes a 401 in production. The API filters employee rows befor
 - `organizationLevelProfile()` reports how consistently actual supervisor links follow the configured order.
 - CEO/division/department heads are resolved from fixed seniority + title + direct-report evidence.
 - Department employees form recursive nodes from actual supervisor links; malformed cycles are removed.
-- UI scopes Division first, then Department. A selected division renders horizontal seven-level lanes while preserving reporting details.
+- UI scopes Division first, then Department. A selected division renders the classic top-down organogram.
+- `src/lib/organogram.ts` produces geometry: level bands (L6→L1), column packing by subtree, right-angle elbow connectors, vertical stack groups with a right-side rail, dotted vacant placeholders and temporary-staff flags.
 
 ## 10. Afghanistan map architecture
 

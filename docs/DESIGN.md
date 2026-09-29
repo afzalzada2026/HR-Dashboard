@@ -59,6 +59,10 @@ Shared ECharts tokens; subtle grids; high-contrast data; rounded tooltips; count
 
 Sequential theme-aware blue intensity; neutral unstaffed provinces; white/navy boundaries; amber selected province and station markers. Show mapping coverage and unknown count. Never visually assign unknown employees to a fallback province.
 
+## Organization charts
+
+Divisional organograms follow the approved HR drawing conventions: pale level rail at the left with L6 at the top through L1 at the bottom, amber separators between bands, square position cards (bold title over employee name), right-angle elbow connectors, dotted cards for vacant posts, yellow cards for temporary/contract staff, and vertically stacked individual contributors joined by a right-side rail. The whole-workforce view keeps the interactive expandable tree.
+
 ## Tables
 
 Sticky header/frozen first column, 52 px employee rows, global + column search, virtualized rows, horizontal overflow for selected columns, hover indicating profile drill-through.

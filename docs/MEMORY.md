@@ -33,7 +33,7 @@ This file is a concise handoff for future maintainers and AI coding sessions. Re
 9. **Remarks-derived HR signals.** Turnover/promotion are inferred only because the source schema lacks authoritative events. Replace when fields become available.
 10. **Exports respect security scope and filters.** View snapshots reflect hidden widgets; structured workbook contains all approved filtered columns.
 11. **Capture is full-scroll/high-DPI.** Do not replace the readiness/safe-scale/PNG-slice pipeline with a simple viewport JPEG capture.
-12. **Org hierarchy is supervisor-first and level-aware.** The fixed order is L6 → L5 → L4 → L3H → L3 → L2 → L1. Divisional scope uses a horizontal seven-lane view; L3H is treated as a head band.
+12. **Org hierarchy is supervisor-first and level-aware.** The fixed order is L6 → L5 → L4 → L3H → L3 → L2 → L1. Divisional scope renders the approved top-down organogram (level rail, elbow connectors, dotted vacant posts, yellow temporary cards, stacked IC groups with side rail); L3H is treated as a head band.
 
 ## Dashboard personalization IDs
 

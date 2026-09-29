@@ -126,7 +126,9 @@ Chart clicks cross-filter the entire application. Charts support table mode, foc
 - Cascading local selectors: Division first, then only departments available in that division.
 - Canonical company bands: L1, L2, L3, L3H, L4, L5, L6.
 - Fixed ATOMA top-to-bottom bands: L6 → L5 → L4 → L3H → L3 → L2 → L1.
-- Selecting a division switches to a horizontal seven-lane chart ordered left-to-right from L6 leadership to L1 foundation; Department further scopes those lanes.
+- Selecting a division renders the approved HR-style organogram: level rail on the left, orange band separators, centred subtrees and right-angle connectors; Department further scopes the chart.
+- Vacant leadership posts appear as dotted cards with “(Vacant)”; temporary/contract staff appear on yellow cards.
+- Manager with several individual contributors shows them as a vertically stacked group joined by a right-side connector rail.
 - Supervisor relationships are measured against the configured hierarchy and displayed as a data-consistency percentage.
 - L3H receives head-band priority when resolving department heads.
 - Actual supervisor links are primary; bands, titles and direct-report counts resolve leaders and missing links.

@@ -2,10 +2,10 @@
 
 import { Building2, ChevronDown, ChevronRight, Crown, Expand, GitBranch, Hand, Layers, Maximize, Network, Search, Shrink, Users, ZoomIn, ZoomOut } from "lucide-react";
 import { type PointerEvent as RPointerEvent, useMemo, useRef, useState } from "react";
-import { buildOrgTree, canonicalOrgLevel, organizationLevelProfile, type OrgNode, type OrgLevelCode } from "@/lib/analytics";
+import { buildOrgTree, organizationLevelProfile, type OrgNode } from "@/lib/analytics";
 import { cn, fmtNum, fmtPct } from "@/lib/format";
-import type { Employee } from "@/lib/types";
 import { useDataStore } from "@/store/data";
+import { Organogram } from "../org/Organogram";
 import { useUIStore } from "@/store/ui";
 import { DataGate } from "../shell/Chrome";
 import { Avatar, Badge, Button, IconButton, PageHeader } from "../ui/primitives";
@@ -91,50 +91,7 @@ function EmployeeBranch({ node, expanded, toggle, openEmployee, ring, depth = 0 
   );
 }
 
-function HorizontalDivisionChart({ employees, division, department, openEmployee }: { employees: Employee[]; division: string; department: string; openEmployee: (id: string | null) => void }) {
-  const levels: OrgLevelCode[] = ["L6", "L5", "L4", "L3H", "L3", "L2", "L1"];
-  const grouped = new Map<OrgLevelCode, Employee[]>(levels.map((level) => [level, []]));
-  const unmapped: Employee[] = [];
-  for (const employee of employees) {
-    const level = canonicalOrgLevel(employee.level);
-    if (level) grouped.get(level)?.push(employee);
-    else unmapped.push(employee);
-  }
-  const sort = (list: Employee[]) => [...list].sort((a, b) => b.directReports - a.directReports || a.department.localeCompare(b.department) || a.fullName.localeCompare(b.fullName));
-  return (
-    <div className="min-w-[1960px] p-6" data-export-expand="true">
-      <div className="mb-4 flex items-center justify-between rounded-2xl bg-linear-to-r from-brand-900 to-brand-700 px-5 py-4 text-white">
-        <div><p className="text-[10px] font-semibold tracking-[0.16em] text-white/65 uppercase">Horizontal divisional hierarchy</p><h3 className="text-lg font-bold">{division}{department ? ` · ${department}` : ""}</h3></div>
-        <div className="text-right text-[11px] text-white/75"><p><b className="text-white">{fmtNum(employees.length)}</b> employees</p><p>Leadership flows left → right · L6 top to L1 bottom</p></div>
-      </div>
-      <div className="grid grid-cols-7 items-start gap-4">
-        {levels.map((level, levelIndex) => {
-          const people = sort(grouped.get(level) ?? []);
-          return (
-            <section key={level} className="relative min-w-0">
-              {levelIndex < levels.length - 1 && <ChevronRight className="absolute top-5 -right-4 z-10 h-5 w-5 translate-x-1/2 text-accent" />}
-              <div className={cn("mb-3 rounded-xl border px-3 py-2.5 text-center", level === "L3H" ? "border-warning/40 bg-warning/10" : "border-accent/30 bg-accent/8")}>
-                <p className="text-lg font-extrabold text-fg">{level}</p>
-                <p className="text-[10px] font-semibold tracking-wider text-muted uppercase">{levelIndex === 0 ? "Top leadership" : levelIndex === levels.length - 1 ? "Foundation" : level === "L3H" ? "Head band" : `Tier ${levelIndex + 1}`}</p>
-                <Badge tone={level === "L3H" ? "warning" : "primary"}>{people.length} people</Badge>
-              </div>
-              <div className="space-y-2">
-                {people.map((employee) => (
-                  <button key={employee.id} type="button" onClick={() => openEmployee(employee.id)} className="glass-strong group w-full rounded-xl p-2.5 text-left transition-all hover:-translate-y-0.5 hover:border-accent/50">
-                    <div className="flex items-start gap-2"><Avatar name={employee.fullName} size={28} /><span className="min-w-0 flex-1"><span className="block truncate text-[11.5px] font-semibold text-fg">{employee.fullName}</span><span className="block truncate text-[10px] text-muted">{employee.title}</span></span>{employee.directReports > 0 && <Badge tone="success">{employee.directReports} ↓</Badge>}</div>
-                    <div className="mt-2 border-t border-line pt-1.5 text-[9.5px] leading-relaxed text-subtle"><p className="truncate">{employee.department}</p><p className="truncate" title={employee.supervisor}>Reports to: <span className="text-muted">{employee.supervisor || "—"}</span></p></div>
-                  </button>
-                ))}
-                {!people.length && <div className="rounded-xl border border-dashed border-line px-3 py-8 text-center text-[11px] text-subtle">No employees</div>}
-              </div>
-            </section>
-          );
-        })}
-      </div>
-      {unmapped.length > 0 && <div className="mt-4 rounded-xl border border-warning/30 bg-warning/8 p-3 text-[11.5px] text-warning">{unmapped.length} employee{unmapped.length === 1 ? "" : "s"} have an unmapped level and are excluded from the seven level lanes.</div>}
-    </div>
-  );
-}
+
 
 function OrgInner() {
   const filtered = useDataStore((s) => s.filtered);
@@ -275,7 +232,7 @@ function OrgInner() {
         <div className="flex flex-wrap items-center gap-1.5">
           {division ? (
             <>
-              <Badge tone="success"><GitBranch className="h-3 w-3" /> Horizontal L6 → L1 view</Badge>
+              <Badge tone="success"><GitBranch className="h-3 w-3" /> Divisional organogram · L6 → L1</Badge>
               <Button size="sm" onClick={() => { setSelectedDivision(""); setSelectedDepartment(""); setExpanded(new Set(["ceo"])); }}><Shrink /> All divisions</Button>
             </>
           ) : (
@@ -306,6 +263,11 @@ function OrgInner() {
         </div>
       </div>
 
+      {division ? (
+        <div className="glass overflow-hidden rounded-2xl" data-export-expand="true">
+          <Organogram employees={scopedEmployees} scopeLabel={`${division}${department ? ` · ${department}` : ""}`} onOpenEmployee={openEmployee} />
+        </div>
+      ) : (
       <div
         ref={canvas}
         className="glass relative cursor-grab overflow-auto rounded-2xl active:cursor-grabbing"
@@ -321,9 +283,6 @@ function OrgInner() {
           setZoom((z) => Math.min(1.6, Math.max(0.35, +(z - e.deltaY * 0.001).toFixed(2))));
         }}
       >
-        {division ? (
-          <HorizontalDivisionChart employees={scopedEmployees} division={division} department={department} openEmployee={openEmployee} />
-        ) : (
         <div className="inline-flex min-w-full justify-center p-8" style={{ zoom }}>
           <div className="flex flex-col items-center">
             <div id={domId("ceo")} className={cn("relative w-[300px] overflow-hidden rounded-2xl p-4 text-white shadow-[0_24px_50px_-20px_rgba(6,43,91,0.7)] transition-shadow", ring("ceo"))} style={{ background: "linear-gradient(135deg,#062B5B,#0D47A1 60%,#00A8FF)" }}>
@@ -429,8 +388,8 @@ function OrgInner() {
             )}
           </div>
         </div>
-        )}
       </div>
+      )}
     </>
   );
 }
