@@ -128,7 +128,9 @@ Chart clicks cross-filter the entire application. Charts support table mode, foc
 - Fixed ATOMA top-to-bottom bands: L6 → L5 → L4 → L3H → L3 → L2 → L1.
 - Selecting a division renders the approved HR-style organogram: level rail on the left, orange band separators, centred subtrees and right-angle connectors; Department further scopes the chart.
 - Vacant leadership posts appear as dotted cards with “(Vacant)”; temporary/contract staff appear on yellow cards.
-- Manager with several individual contributors shows them as a vertically stacked group joined by a right-side connector rail.
+- Reports sit in a centred row under their manager — four reports split two left and two right of the reporting line; no vertical stacking.
+- Large teams collapse into expandable “+N more” cards, keeping even 20,000-person divisions fast and readable.
+- Organogram export: single-page vector PDF (A4→A0, no rasterisation), editable SVG, high-resolution PNG, and one-page landscape print.
 - Supervisor relationships are measured against the configured hierarchy and displayed as a data-consistency percentage.
 - L3H receives head-band priority when resolving department heads.
 - Actual supervisor links are primary; bands, titles and direct-report counts resolve leaders and missing links.

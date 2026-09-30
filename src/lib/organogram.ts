@@ -1,4 +1,4 @@
-import { buildIndex, canonicalOrgLevel, findSupervisor, type OrgLevelCode } from "./analytics";
+import { canonicalOrgLevel, pickLeader, reportingChildren, type OrgLevelCode } from "./analytics";
 import type { Employee } from "./types";
 
 /** ATOMA hierarchy, top to bottom, exactly as used in the approved HR organogram. */
@@ -7,13 +7,15 @@ export const LEVEL_ORDER: OrgLevelCode[] = ["L6", "L5", "L4", "L3H", "L3", "L2",
 export const CARD_W = 238;
 export const CARD_H = 62;
 export const GAP_X = 30;
-export const STACK_GAP = 12;
 export const BAND_PAD = 26;
 export const RAIL_W = 66;
+export const DEFAULT_CHILD_CAP = 8;
+export const DEFAULT_NODE_BUDGET = 1_200;
 
 const MANAGER_RE = /manager|head|supervisor|lead|chief|director/i;
 const TEMP_RE = /\b(temp|temporary|interim|probation|contractor|on contract)\b/i;
 const VACANT_RE = /\bvacan/i;
+const CEO_RE = /chief executive|\bceo\b|managing director|country director|president/i;
 
 export interface OrganogramNode {
   id: string;
@@ -23,8 +25,10 @@ export interface OrganogramNode {
   vacant: boolean;
   temporary: boolean;
   employeeId?: string;
+  /** Set on "+N more" placeholder cards, pointing at the parent to expand. */
+  moreOf?: string;
+  moreCount?: number;
   children: OrganogramNode[];
-  stacked: boolean;
   reports: number;
 }
 
@@ -46,7 +50,8 @@ export interface OrganogramBand {
 
 export interface OrganogramEdge {
   d: string;
-  kind: "report" | "stack";
+  points: [number, number][];
+  kind: "report" | "more";
 }
 
 export interface OrganogramLayout {
@@ -58,6 +63,7 @@ export interface OrganogramLayout {
   root: OrganogramNode | null;
   vacantCount: number;
   temporaryCount: number;
+  hiddenCount: number;
 }
 
 function fallbackLevel(employee: Employee): OrgLevelCode {
@@ -71,18 +77,21 @@ function fallbackLevel(employee: Employee): OrgLevelCode {
   return "L1";
 }
 
-function makeNode(employee: Employee): OrganogramNode {
+function levelOf(employee: Employee): OrgLevelCode {
+  return canonicalOrgLevel(employee.level) ?? fallbackLevel(employee);
+}
+
+function makeNode(employee: Employee, reports: number): OrganogramNode {
   return {
     id: employee.id,
     name: employee.fullName,
     title: employee.title,
-    level: canonicalOrgLevel(employee.level) ?? fallbackLevel(employee),
+    level: levelOf(employee),
     vacant: VACANT_RE.test(`${employee.title} ${employee.remarks}`),
     temporary: TEMP_RE.test(`${employee.title} ${employee.remarks}`),
     employeeId: employee.id,
     children: [],
-    stacked: false,
-    reports: employee.directReports,
+    reports,
   };
 }
 
@@ -90,102 +99,71 @@ function bandLabel(level: OrgLevelCode): string {
   return level === "L3H" ? "Head band" : level === "L6" ? "Executive" : level === "L1" ? "Representative" : `Level ${level[1]}`;
 }
 
+const rank = (node: OrganogramNode) => LEVEL_ORDER.indexOf(node.level);
+
 /**
- * Builds a divisional organogram from real supervisor links, keeping the approved
- * top-to-bottom level bands. Vacant leadership posts become dotted placeholder cards.
+ * Builds a divisional organogram from real supervisor links under the approved
+ * L6 → L1 bands. Leadership posts without a filled card become dotted placeholders.
  */
 export function buildDivisionOrganogram(employees: Employee[]): OrganogramNode | null {
   if (!employees.length) return null;
-  const index = buildIndex(employees);
+  const kids = reportingChildren(employees);
   const byId = new Map(employees.map((employee) => [employee.id, employee]));
-  const nodeById = new Map(employees.map((employee) => [employee.id, makeNode(employee)]));
-  const parent = new Map<string, string | null>();
-  const children = new Map<string, string[]>();
+  const reportCounts = new Map<string, number>();
+  kids.forEach((list, id) => reportCounts.set(id, list.length));
 
-  for (const employee of employees) {
-    const supervisor = findSupervisor(employee, index);
-    const parentId = supervisor && supervisor.id !== employee.id && byId.has(supervisor.id) ? supervisor.id : null;
-    parent.set(employee.id, parentId);
-    if (parentId) children.set(parentId, [...(children.get(parentId) ?? []), employee.id]);
-  }
-
-  // Remove reporting cycles so the tree always lays out.
-  for (const employee of employees) {
-    const seen = new Set([employee.id]);
-    let cursor = parent.get(employee.id) ?? null;
-    while (cursor) {
-      if (seen.has(cursor)) {
-        parent.set(employee.id, null);
-        const siblings = children.get(cursor) ?? [];
-        children.set(cursor, siblings.filter((id) => id !== employee.id));
-        break;
-      }
-      seen.add(cursor);
-      cursor = parent.get(cursor) ?? null;
-    }
-  }
-
-  const roots = employees.filter((employee) => !parent.get(employee.id));
+  const childIds = new Set<string>();
+  kids.forEach((list) => list.forEach((child) => childIds.add(child.id)));
+  const roots = employees.filter((employee) => !childIds.has(employee.id));
   const head =
-    roots.find((employee) => /chief executive|\bceo\b|country director|managing director|division head/i.test(employee.title)) ??
-    [...roots].sort((a, b) => {
-      const la = LEVEL_ORDER.indexOf(nodeById.get(a.id)!.level);
-      const lb = LEVEL_ORDER.indexOf(nodeById.get(b.id)!.level);
-      return la - lb || b.directReports - a.directReports || a.fullName.localeCompare(b.fullName);
-    })[0] ??
-    employees[0];
-  const headNode = nodeById.get(head.id)!;
+    pickLeader(roots.length ? roots : employees, {
+      kids,
+      seniority: (employee) => LEVEL_ORDER.indexOf(levelOf(employee)),
+      titleRe: CEO_RE,
+    }) ?? employees[0];
 
-  const attached = new Set<string>([head.id]);
-  const build = (node: OrganogramNode, employee: Employee): OrganogramNode => {
-    const kids = (children.get(employee.id) ?? [])
-      .map((id) => byId.get(id))
-      .filter((child): child is Employee => Boolean(child))
-      .sort((a, b) => {
-        const la = LEVEL_ORDER.indexOf(nodeById.get(a.id)!.level);
-        const lb = LEVEL_ORDER.indexOf(nodeById.get(b.id)!.level);
-        return la - lb || b.directReports - a.directReports || a.title.localeCompare(b.title) || a.fullName.localeCompare(b.fullName);
-      });
-    node.children = kids.map((child) => {
-      attached.add(child.id);
-      return build(nodeById.get(child.id)!, child);
-    });
+  const nodeById = new Map(employees.map((employee) => [employee.id, makeNode(employee, reportCounts.get(employee.id) ?? 0)]));
+  const visited = new Set<string>();
+  const build = (employee: Employee): OrganogramNode => {
+    visited.add(employee.id);
+    const node = nodeById.get(employee.id)!;
+    node.children = (kids.get(employee.id) ?? [])
+      .slice()
+      .sort((a, b) => rank(nodeById.get(a.id)!) - rank(nodeById.get(b.id)!) || (reportCounts.get(b.id) ?? 0) - (reportCounts.get(a.id) ?? 0) || a.title.localeCompare(b.title) || a.fullName.localeCompare(b.fullName))
+      .map(build);
     return node;
   };
-  build(headNode, head);
+  const headNode = build(head);
 
-  // Staff whose supervisor sits outside this scope attach to the nearest in-scope
-  // department leader (same department, strictly higher band), never directly to the top card.
-  const rank = (id: string) => LEVEL_ORDER.indexOf(nodeById.get(id)!.level);
+  // Staff whose supervisor is outside this scope join the nearest in-scope department leader.
   const orphans = employees
-    .filter((employee) => !attached.has(employee.id))
-    .sort((a, b) => rank(a.id) - rank(b.id) || b.directReports - a.directReports);
+    .filter((employee) => !visited.has(employee.id))
+    .sort((a, b) => rank(nodeById.get(a.id)!) - rank(nodeById.get(b.id)!) || (reportCounts.get(b.id) ?? 0) - (reportCounts.get(a.id) ?? 0));
   for (const employee of orphans) {
     let best: Employee | null = null;
     for (const candidate of employees) {
-      if (candidate.id === employee.id || !attached.has(candidate.id)) continue;
-      if (rank(candidate.id) >= rank(employee.id)) continue;
+      if (candidate.id === employee.id || !visited.has(candidate.id)) continue;
+      if (rank(nodeById.get(candidate.id)!) >= rank(nodeById.get(employee.id)!)) continue;
       if (candidate.department !== employee.department) continue;
-      if (!best || rank(candidate.id) < rank(best.id) || (rank(candidate.id) === rank(best.id) && candidate.directReports > best.directReports)) best = candidate;
+      if (!best || rank(nodeById.get(candidate.id)!) < rank(nodeById.get(best.id)!) || (rank(nodeById.get(candidate.id)!) === rank(nodeById.get(best.id)!) && (reportCounts.get(candidate.id) ?? 0) > (reportCounts.get(best.id) ?? 0))) best = candidate;
     }
-    const parentId = best?.id ?? head.id;
-    nodeById.get(parentId)!.children.push(nodeById.get(employee.id)!);
-    attached.add(employee.id);
+    const parent = nodeById.get(best?.id ?? head.id)!;
+    parent.children.push(nodeById.get(employee.id)!);
+    parent.reports = parent.children.length;
+    visited.add(employee.id);
   }
 
-  // A department with staff but no L3H/L3 leader gets a dotted vacant leadership card.
+  // Departments with staff but no L3H/L3/manager leader get a dotted vacant leadership card.
   const departments = new Map<string, Employee[]>();
   for (const employee of employees) departments.set(employee.department, [...(departments.get(employee.department) ?? []), employee]);
   for (const [department, members] of departments) {
     const hasLeader = members.some((member) => {
-      const node = nodeById.get(member.id)!;
-      return node.level === "L3H" || node.level === "L3" || MANAGER_RE.test(member.title);
+      const level = levelOf(member);
+      return level === "L3H" || level === "L3" || MANAGER_RE.test(member.title);
     });
     if (hasLeader || members.length < 2) continue;
-    const unattachedTop = members.filter((member) => {
-      const parentId = parent.get(member.id);
-      return !parentId || !members.some((other) => other.id === parentId);
-    });
+    const departmentNodes = members.map((member) => nodeById.get(member.id)!);
+    const topNodes = departmentNodes.filter((node) => !members.some((other) => other.id !== node.id && (kids.get(other.id) ?? []).some((child) => child.id === node.id)));
     const vacant: OrganogramNode = {
       id: `vacant:${department}`,
       name: "(Vacant)",
@@ -193,38 +171,68 @@ export function buildDivisionOrganogram(employees: Employee[]): OrganogramNode |
       level: "L3",
       vacant: true,
       temporary: false,
-      children: unattachedTop.map((member) => nodeById.get(member.id)!),
-      stacked: false,
-      reports: unattachedTop.length,
+      children: topNodes,
+      reports: topNodes.length,
     };
     headNode.children.push(vacant);
-    headNode.children.sort((a, b) => LEVEL_ORDER.indexOf(a.level) - LEVEL_ORDER.indexOf(b.level) || b.reports - a.reports);
+    headNode.children.sort((a, b) => rank(a) - rank(b) || b.reports - a.reports);
   }
 
   return headNode;
 }
 
-/** Classic top-down organogram geometry: level bands, centred subtrees and right-angle connectors. */
+/**
+ * Bounds what is drawn: each card keeps a manageable number of direct reports and the
+ * whole chart keeps a node budget, so a 20,000-person division still renders instantly.
+ * Hidden branches collapse into “+N more” cards that expand on click.
+ */
+export function toDisplayTree(root: OrganogramNode, caps: Record<string, number>, budget = DEFAULT_NODE_BUDGET): { tree: OrganogramNode; hiddenCount: number } {
+  let used = 1;
+  let hidden = 0;
+  const clone = (node: OrganogramNode, depth: number): OrganogramNode => {
+    const cap = caps[node.id] ?? DEFAULT_CHILD_CAP;
+    const remaining = budget - used;
+    const allowed = Math.max(0, Math.min(cap, remaining - (depth + 2)));
+    const visible = node.children.slice(0, allowed);
+    const rest = node.children.length - visible.length;
+    hidden += rest;
+    used += visible.length + (rest > 0 ? 1 : 0);
+    const children = visible.map((child) => clone(child, depth + 1));
+    if (rest > 0) {
+      children.push({
+        id: `more:${node.id}`,
+        name: `+${rest} more`,
+        title: "Click to show more",
+        level: node.children[allowed]?.level ?? node.level,
+        vacant: false,
+        temporary: false,
+        moreOf: node.id,
+        moreCount: rest,
+        children: [],
+        reports: rest,
+      });
+    }
+    return { ...node, children };
+  };
+  return { tree: clone(root, 0), hiddenCount: hidden };
+}
+
+/** Classic top-down organogram geometry: level bands, centred subtrees, right-angle connectors. */
 export function layoutOrganogram(root: OrganogramNode | null): OrganogramLayout {
-  if (!root) return { width: RAIL_W + CARD_W + 48, height: 160, bands: [], nodes: [], edges: [], root: null, vacantCount: 0, temporaryCount: 0 };
+  const empty: OrganogramLayout = { width: RAIL_W + CARD_W + 60, height: 180, bands: [], nodes: [], edges: [], root: null, vacantCount: 0, temporaryCount: 0, hiddenCount: 0 };
+  if (!root) return empty;
 
   const step = CARD_W + GAP_X;
   const columns = new Map<string, number>();
   let nextColumn = 0;
 
+  // Leaf packing: each leaf takes the next column; a parent centres over its children,
+  // so four reports naturally sit two left and two right of the reporting line.
   const place = (node: OrganogramNode): number => {
     const kids = node.children;
     if (!kids.length) {
       const column = nextColumn++;
       columns.set(node.id, column);
-      return column;
-    }
-    const stackable = kids.length >= 3 && kids.every((child) => child.children.length === 0);
-    if (stackable) {
-      node.stacked = true;
-      const column = nextColumn++;
-      columns.set(node.id, column);
-      for (const child of kids) columns.set(child.id, column);
       return column;
     }
     const centres = kids.map(place);
@@ -244,29 +252,11 @@ export function layoutOrganogram(root: OrganogramNode | null): OrganogramLayout 
   const bandIndex = (level: OrgLevelCode) => LEVEL_ORDER.indexOf(level);
   const present = [...new Set(flat.map((node) => bandIndex(node.level)))].sort((a, b) => a - b);
 
-  // Stacked leaf groups hang vertically inside their own level band, aligned to the parent column.
-  const stackSlot = new Map<string, number>();
-  const stackCount = new Map<string, number>();
-  for (const node of flat) {
-    if (!node.stacked) continue;
-    const column = columns.get(node.id) ?? 0;
-    for (const child of node.children) {
-      const key = `${bandIndex(child.level)}|${column}`;
-      const slot = stackCount.get(key) ?? 0;
-      stackSlot.set(child.id, slot);
-      stackCount.set(key, slot + 1);
-    }
-  }
-
   const bandHeights = new Map<number, number>();
   for (const node of flat) {
     const band = bandIndex(node.level);
     bandHeights.set(band, Math.max(bandHeights.get(band) ?? 0, CARD_H));
   }
-  stackCount.forEach((count, key) => {
-    const band = Number(key.split("|")[0]);
-    bandHeights.set(band, Math.max(bandHeights.get(band) ?? 0, count * (CARD_H + STACK_GAP)));
-  });
 
   const bands: OrganogramBand[] = [];
   const bandTop = new Map<number, number>();
@@ -274,26 +264,27 @@ export function layoutOrganogram(root: OrganogramNode | null): OrganogramLayout 
   for (const band of present) {
     const height = (bandHeights.get(band) ?? CARD_H) + BAND_PAD * 2;
     bandTop.set(band, cursorY);
-    bands.push({ level: LEVEL_ORDER[band], label: bandLabel(LEVEL_ORDER[band]), y: cursorY, height, count: flat.filter((node) => bandIndex(node.level) === band).length });
+    bands.push({
+      level: LEVEL_ORDER[band],
+      label: bandLabel(LEVEL_ORDER[band]),
+      y: cursorY,
+      height,
+      count: flat.filter((node) => bandIndex(node.level) === band).length,
+    });
     cursorY += height;
   }
 
   const nodes: PlacedNode[] = [];
   const placed = new Map<string, PlacedNode>();
   for (const node of flat) {
-    const band = bandIndex(node.level);
-    const slot = stackSlot.get(node.id) ?? 0;
     const x = RAIL_W + (columns.get(node.id) ?? 0) * step + CARD_W / 2;
-    const y = (bandTop.get(band) ?? 0) + BAND_PAD + slot * (CARD_H + STACK_GAP);
+    const y = (bandTop.get(bandIndex(node.level)) ?? 0) + BAND_PAD;
     const entry: PlacedNode = { node, x, y, width: CARD_W, height: CARD_H };
     nodes.push(entry);
     placed.set(node.id, entry);
   }
 
-  // Resolve accidental horizontal collisions within the same visual row, moving whole
-  // stacked groups so a vertical stack always stays aligned under its manager.
-  const stackGroupOf = new Map<string, string>();
-  for (const node of flat) if (node.stacked) for (const child of node.children) stackGroupOf.set(child.id, node.id);
+  // Resolve accidental horizontal collisions within the same visual row.
   const rows = new Map<number, PlacedNode[]>();
   for (const entry of nodes) {
     const key = Math.round(entry.y / 4);
@@ -303,48 +294,40 @@ export function layoutOrganogram(root: OrganogramNode | null): OrganogramLayout 
     row.sort((a, b) => a.x - b.x);
     for (let index = 1; index < row.length; index++) {
       const required = row[index - 1].x + CARD_W + 14;
-      if (row[index].x >= required) continue;
-      const delta = required - row[index].x;
-      const groupId = stackGroupOf.get(row[index].node.id);
-      if (groupId) {
-        for (const entry of nodes) if (stackGroupOf.get(entry.node.id) === groupId) entry.x += delta;
-      } else {
-        row[index].x += delta;
-      }
+      if (row[index].x < required) row[index].x = required;
     }
   }
 
   const edges: OrganogramEdge[] = [];
   const connect = (parent: OrganogramNode) => {
     const parentBox = placed.get(parent.id)!;
-    if (parent.stacked) {
-      const kids = parent.children.map((child) => placed.get(child.id)!);
-      const railX = parentBox.x + CARD_W / 2 + 16;
-      const last = kids[kids.length - 1];
-      const startY = parentBox.y + CARD_H + 14;
-      edges.push({ kind: "stack", d: `M ${parentBox.x} ${parentBox.y + CARD_H} V ${startY} H ${railX} V ${last.y + CARD_H / 2}` });
-      for (const kid of kids) edges.push({ kind: "stack", d: `M ${railX} ${kid.y + CARD_H / 2} H ${kid.x + CARD_W / 2}` });
-    } else {
-      for (const child of parent.children) {
-        const childBox = placed.get(child.id)!;
-        const gap = childBox.y - (parentBox.y + CARD_H);
-        const elbow = parentBox.y + CARD_H + Math.max(12, gap / 2);
-        edges.push({ kind: "report", d: `M ${parentBox.x} ${parentBox.y + CARD_H} V ${elbow} H ${childBox.x} V ${childBox.y}` });
-      }
+    for (const child of parent.children) {
+      const childBox = placed.get(child.id)!;
+      const gap = Math.max(0, childBox.y - (parentBox.y + CARD_H));
+      const elbow = parentBox.y + CARD_H + Math.max(10, gap / 2);
+      const points: [number, number][] = [
+        [parentBox.x, parentBox.y + CARD_H],
+        [parentBox.x, elbow],
+        [childBox.x, elbow],
+        [childBox.x, childBox.y],
+      ];
+      edges.push({ kind: child.moreOf ? "more" : "report", points, d: points.map((point, index) => `${index ? "L" : "M"} ${point[0]} ${point[1]}`).join(" ") });
+      connect(child);
     }
-    parent.children.forEach(connect);
   };
   connect(root);
 
-  const width = Math.max(...nodes.map((node) => node.x + CARD_W / 2)) + 40;
+  let width = 0;
+  for (const entry of nodes) width = Math.max(width, entry.x + CARD_W / 2);
   return {
-    width,
-    height: cursorY + 24,
+    width: Math.max(RAIL_W + CARD_W + 60, width + 40),
+    height: Math.max(180, cursorY + 24),
     bands,
     nodes,
     edges,
     root,
     vacantCount: flat.filter((node) => node.vacant).length,
     temporaryCount: flat.filter((node) => node.temporary).length,
+    hiddenCount: flat.filter((node) => node.moreOf).reduce((sum, node) => sum + (node.moreCount ?? 0), 0),
   };
 }

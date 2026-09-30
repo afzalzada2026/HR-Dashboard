@@ -287,19 +287,31 @@ export async function exportViewPDF(el: HTMLElement, meta: SnapshotMeta): Promis
     if (p > 0) pdf.addPage();
     pdf.setFillColor(...bg);
     pdf.rect(0, 0, W, H, "F");
-    pdf.setFillColor(6, 43, 91);
-    pdf.rect(0, 0, W, 46, "F");
-    pdf.setFillColor(0, 168, 255);
-    pdf.rect(0, 46, W, 3, "F");
-    pdf.setTextColor(255, 255, 255);
-    pdf.setFont("helvetica", "bold");
-    pdf.setFontSize(16);
-    pdf.text("ATOMA", margin, 22);
-    pdf.setFont("helvetica", "normal");
-    pdf.setFontSize(9);
-    pdf.text(`Workforce Intelligence · ${meta.title}`, margin, 36);
-    pdf.text(new Date().toLocaleString(), W - margin, 22, { align: "right" });
-    pdf.text(`Prepared by ${meta.user}`, W - margin, 36, { align: "right" });
+    // The branded blue band belongs to page one only; continuation pages keep a slim caption.
+    if (p === 0) {
+      pdf.setFillColor(6, 43, 91);
+      pdf.rect(0, 0, W, 46, "F");
+      pdf.setFillColor(0, 168, 255);
+      pdf.rect(0, 46, W, 3, "F");
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(16);
+      pdf.text("ATOMA", margin, 22);
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(9);
+      pdf.text(`Workforce Intelligence · ${meta.title}`, margin, 36);
+      pdf.text(new Date().toLocaleString(), W - margin, 22, { align: "right" });
+      pdf.text(`Prepared by ${meta.user}`, W - margin, 36, { align: "right" });
+    } else {
+      pdf.setDrawColor(210, 222, 238);
+      pdf.setLineWidth(0.7);
+      pdf.line(margin, 26, W - margin, 26);
+      pdf.setTextColor(120, 134, 156);
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(8.5);
+      pdf.text(`${meta.title} — continued`, margin, 18);
+      pdf.text(new Date().toLocaleString(), W - margin, 18, { align: "right" });
+    }
     const overlap = p === 0 ? 0 : 2;
     const y = Math.max(0, p * slicePx - overlap);
     const h = Math.min(slicePx + overlap, shot.height - y);

@@ -232,7 +232,8 @@ Missing division causes a 401 in production. The API filters employee rows befor
 - CEO/division/department heads are resolved from fixed seniority + title + direct-report evidence.
 - Department employees form recursive nodes from actual supervisor links; malformed cycles are removed.
 - UI scopes Division first, then Department. A selected division renders the classic top-down organogram.
-- `src/lib/organogram.ts` produces geometry: level bands (L6→L1), column packing by subtree, right-angle elbow connectors, vertical stack groups with a right-side rail, dotted vacant placeholders and temporary-staff flags.
+- `src/lib/organogram.ts` produces geometry: level bands (L6→L1), leaf packing with parents centred over children (reports split left/right of the reporting line), right-angle elbow connectors, dotted vacant placeholders, temporary-staff flags and a bounded display tree that collapses large teams into “+N more” cards.
+- `src/lib/org-export.ts` renders the same geometry as editable SVG, single-page vector PDF (A4→A0, no images), and one-page print output.
 
 ## 10. Afghanistan map architecture
 

@@ -91,7 +91,15 @@ export default function EChart({ option, height = 300, onClick, needsMap = false
   }, [needsMap]);
 
   useEffect(() => {
-    if (ready && chart.current) chart.current.setOption(withBase(option, tokens, !exporting), { notMerge: true, lazyUpdate: true });
+    if (!ready || !chart.current) return;
+    try {
+      chart.current.setOption(withBase(option, tokens, !exporting), { notMerge: true, lazyUpdate: true });
+    } catch (error) {
+      // A malformed option must never take down the dashboard page.
+      console.error("[atoma] chart option error", error);
+      const frame = requestAnimationFrame(() => setFailed(true));
+      return () => cancelAnimationFrame(frame);
+    }
   }, [ready, option, tokens, exporting]);
 
   return (

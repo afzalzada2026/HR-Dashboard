@@ -623,17 +623,91 @@ function seniority(employee: Employee, profile: OrganizationLevelProfile): numbe
   return profile.direction === "l1-senior" ? 11 - employee.levelRank : employee.levelRank;
 }
 
-function pickHead(list: Employee[], re: RegExp, profile: OrganizationLevelProfile): Employee | null {
+/** Maps a reporting scope to in-scope children, breaking malformed cycles. */
+export function reportingChildren(emps: Employee[]): Map<string, Employee[]> {
+  const index = buildIndex(emps);
+  const inScope = new Set(emps.map((employee) => employee.id));
+  const parents = new Map<string, string | null>();
+  const kids = new Map<string, Employee[]>();
+  for (const employee of emps) {
+    const supervisor = findSupervisor(employee, index);
+    const parentId = supervisor && supervisor.id !== employee.id && inScope.has(supervisor.id) ? supervisor.id : null;
+    parents.set(employee.id, parentId);
+    if (parentId) kids.set(parentId, [...(kids.get(parentId) ?? []), employee]);
+  }
+  for (const employee of emps) {
+    const seen = new Set([employee.id]);
+    let cursor = parents.get(employee.id) ?? null;
+    while (cursor) {
+      if (seen.has(cursor)) {
+        parents.set(employee.id, null);
+        kids.set(cursor, (kids.get(cursor) ?? []).filter((child) => child.id !== employee.id));
+        break;
+      }
+      seen.add(cursor);
+      cursor = parents.get(cursor) ?? null;
+    }
+  }
+  return kids;
+}
+
+/** Number of in-scope descendants per employee (subtree size). */
+export function descendantCounts(kids: Map<string, Employee[]>): Map<string, number> {
+  const memo = new Map<string, number>();
+  const count = (id: string, depth: number): number => {
+    if (depth > 60) return 0;
+    const cached = memo.get(id);
+    if (cached !== undefined) return cached;
+    let total = 0;
+    for (const child of kids.get(id) ?? []) total += 1 + count(child.id, depth + 1);
+    memo.set(id, total);
+    return total;
+  };
+  for (const id of kids.keys()) count(id, 0);
+  return memo;
+}
+
+const TITLE_BOOSTS: [RegExp, number][] = [
+  [/\b(ceo|chief executive|managing director|president)\b/i, 60],
+  [/\b(cio|cmo|cfo|coo|chro|cto|cso|cpo|chief\s+[a-z&]+\s+officer)\b/i, 55],
+  [/\b(vice president|\bvp\b|director|division head|head of\b)/i, 42],
+  [/\b(head|general manager|sr\.?\s*manager|senior manager|lead)\b/i, 26],
+  [/\b(manager|supervisor|coordinator)\b/i, 12],
+];
+
+export function titleScore(title: string): number {
+  let score = 0;
+  for (const [pattern, boost] of TITLE_BOOSTS) if (pattern.test(title)) score = Math.max(score, boost);
+  return score;
+}
+
+/**
+ * Chooses the leader of a scope: the person with the largest real reporting subtree,
+ * then the highest company band, then leadership title, then direct reports, then name.
+ */
+export function pickLeader(candidates: Employee[], options: { kids?: Map<string, Employee[]>; seniority: (employee: Employee) => number; titleRe?: RegExp }): Employee | null {
+  const counts = options.kids ? descendantCounts(options.kids) : new Map<string, number>();
   let best: Employee | null = null;
   let bestScore = -Infinity;
-  for (const employee of list) {
-    const score = seniority(employee, profile) * 20 + (re.test(employee.title) ? 55 : 0) + (canonicalOrgLevel(employee.level) === "L3H" ? 30 : 0) + Math.min(employee.directReports, 60);
-    if (score > bestScore) {
+  for (const employee of candidates) {
+    const descendants = counts.get(employee.id) ?? 0;
+    const score =
+      descendants * 1.35 +
+      options.seniority(employee) * 26 +
+      titleScore(employee.title) +
+      (options.titleRe?.test(employee.title) ? 24 : 0) +
+      Math.min(employee.directReports, 80) * 0.6;
+    const better = score > bestScore + 1e-9 || (Math.abs(score - bestScore) <= 1e-9 && best !== null && employee.fullName.localeCompare(best.fullName) < 0);
+    if (best === null || better) {
       best = employee;
       bestScore = score;
     }
   }
   return best;
+}
+
+function pickHead(list: Employee[], re: RegExp, profile: OrganizationLevelProfile, kids?: Map<string, Employee[]>): Employee | null {
+  return pickLeader(list, { kids, seniority: (employee) => seniority(employee, profile), titleRe: re });
 }
 
 const femPct = (list: Employee[]) => (list.length ? (list.filter((employee) => employee.gender === "Female").length / list.length) * 100 : 0);
@@ -685,16 +759,16 @@ function employeeHierarchy(members: Employee[], allIndex: ReturnType<typeof buil
 export function buildOrgTree(emps: Employee[]): OrgNode {
   const profile = organizationLevelProfile(emps);
   const allIndex = buildIndex(emps);
-  let ceo: Employee | null = emps.find((employee) => CEO_RE.test(employee.title)) ?? null;
-  if (!ceo && emps.length) ceo = pickHead(emps, CEO_RE, profile);
+  const kids = reportingChildren(emps);
+  let ceo: Employee | null = pickHead(emps, CEO_RE, profile, kids);
   const divisions: OrgNode[] = [];
   const byDiv = [...groupBy(emps, (employee) => employee.division || "Unassigned").entries()].sort((a, b) => b[1].length - a[1].length);
   for (const [division, list] of byDiv) {
-    const head = pickHead(list.filter((employee) => employee !== ceo), DIV_HEAD_RE, profile);
+    const head = pickHead(list.filter((employee) => employee !== ceo), DIV_HEAD_RE, profile, kids);
     const departments: OrgNode[] = [];
     const byDepartment = [...groupBy(list, (employee) => employee.department || "General").entries()].sort((a, b) => b[1].length - a[1].length);
     for (const [department, departmentEmployees] of byDepartment) {
-      const departmentHead = pickHead(departmentEmployees.filter((employee) => employee !== ceo && employee !== head), DEPT_HEAD_RE, profile);
+      const departmentHead = pickHead(departmentEmployees.filter((employee) => employee !== ceo && employee !== head), DEPT_HEAD_RE, profile, kids);
       const members = departmentEmployees.filter((employee) => employee !== departmentHead && employee !== head && employee !== ceo);
       departments.push({
         id: `dept:${division}:${department}`,

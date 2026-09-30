@@ -146,6 +146,11 @@ export default function LoginView() {
               <div className="mt-5 rounded-xl bg-surface-muted p-3 text-[11.5px] text-muted"><Sparkles className="mr-1 inline h-3.5 w-3.5 text-accent" />Credentials are salted and hashed with PBKDF2-SHA256. The active login lasts for this browser tab/session.</div>
             </>
           )}
+          <p className="mt-6 inline-flex items-center gap-1.5 text-[11px] text-subtle">
+            Made with
+            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" aria-label="love"><path fill="#E11D48" d="M12 21s-7.2-4.5-9.4-8.6C.7 8.9 2.4 4.8 6.2 4.1c2.2-.4 4.3.6 5.8 2.4 1.5-1.8 3.6-2.8 5.8-2.4 3.8.7 5.5 4.8 3.6 8.3C19.2 16.5 12 21 12 21z" /></svg>
+            by <span className="font-semibold text-fg">Mohibullah Afzalzada</span>
+          </p>
         </div>
       </div>
     </div>

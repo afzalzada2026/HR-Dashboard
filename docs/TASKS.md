@@ -57,8 +57,15 @@ Legend: `[x]` complete, `[ ]` backlog, `[!]` production dependency/decision.
 - [x] Profile PDF, print, copy contact.
 - [x] Zoom/pan/search/recursive-expand org chart.
 - [x] Cascading Division → Department org-chart filters.
-- [x] L1/L2/L3/L3H/L4/L5/L6 canonicalization and inferred seniority direction.
+- [x] Fixed L6 → L5 → L4 → L3H → L3 → L2 → L1 hierarchy with L1–L6 canonicalization.
 - [x] Supervisor-first recursive reporting hierarchy with cycle protection.
+- [x] Classic HR-style divisional organogram (level rail, elbow connectors, vacant/temporary cards).
+- [x] Centred reporting rows (two left / two right) and bounded “+N more” expansion for very large divisions.
+- [x] Subtree-based leader selection (CEO, division and department heads) with C-suite title handling.
+- [x] Single-page vector organogram PDF (A4→A0), editable SVG, high-res PNG and one-page print.
+- [x] Dashboard PDF: blue ATOMA band on page one only.
+- [x] Page-level ErrorBoundary and chart option isolation so no widget can blank the page.
+- [x] Footer credit: “Made with ♥ by Mohibullah Afzalzada”.
 - [x] Deterministic AI insights and workforce Q&A.
 
 ## Reporting

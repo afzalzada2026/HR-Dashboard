@@ -61,7 +61,7 @@ Sequential theme-aware blue intensity; neutral unstaffed provinces; white/navy b
 
 ## Organization charts
 
-Divisional organograms follow the approved HR drawing conventions: pale level rail at the left with L6 at the top through L1 at the bottom, amber separators between bands, square position cards (bold title over employee name), right-angle elbow connectors, dotted cards for vacant posts, yellow cards for temporary/contract staff, and vertically stacked individual contributors joined by a right-side rail. The whole-workforce view keeps the interactive expandable tree.
+Divisional organograms follow the approved HR drawing conventions: pale level rail at the left with L6 at the top through L1 at the bottom, amber separators between bands, square position cards (bold title over employee name), right-angle elbow connectors, dotted cards for vacant posts and yellow cards for temporary/contract staff. Reports sit in one centred row under their manager (two left / two right for a team of four) and oversized teams collapse into dashed “+N more” cards. The whole-workforce view keeps the interactive expandable tree. Organogram export is vector first: single-page PDF scaling A4→A0, editable SVG, high-res PNG and one-page print; the blue ATOMA band appears once (page one only) in multi-page PDFs.
 
 ## Tables
 
