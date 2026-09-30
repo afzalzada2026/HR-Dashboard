@@ -236,7 +236,8 @@ Missing division causes a 401 in production. The API filters employee rows befor
 - Supervisor matching is tolerant: exact → e-mail → unique fuzzy name match (handles Mamoozai/Mamozai-style variants).
 - Leader selection scores scope-root (reports outside the scope), reporting-subtree size, company band, title (incl. GM/DGM and C-suite abbreviations), and division/department name in the title.
 - Department charts are built over the department population while retaining the leadership chain, so the division head stays on top.
-- `src/lib/org-export.ts` renders the same geometry as editable SVG, single-page vector PDF (A4→A0, no images) and one-page print, including the ATOMA mark (`src/lib/brand.ts`) and the printed legend.
+- Layout is the approved Visio arrangement: compact row packing with each manager centred over their team’s span (reports split left/right of the reporting line, middle report on the axis for odd counts); leaf teams of 5+ stack into columns of 3 with spine-and-stub connectors; staff officers (Secretary/Assistant) sit laterally beside their manager and may have their own reports; level bands grow in height where a level is dense.
+- `src/lib/org-export.ts` renders the same geometry as editable SVG, single-page vector PDF (A4→A0, no images), one-page print, and a Microsoft Visio XML drawing (`.vdx`) with real Visio shapes for every card, connector, rail band and legend item.
 
 ## 10. Afghanistan map architecture
 

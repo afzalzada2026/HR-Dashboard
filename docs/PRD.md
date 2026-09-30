@@ -133,7 +133,9 @@ Chart clicks cross-filter the entire application. Charts support table mode, foc
 - Level bands are flexible: a busy band (typically L2/L1) wraps into several rows and grows taller, so charts stay print-friendly instead of stretching into one endless line.
 - Divisions above 80 people render one sheet per department, each topped by the division head/director and containing all staff of that department.
 - Vacant posts are visually supported (dotted cards) but not synthesised for now; temporary/contract staff stay highlighted in yellow.
-- Organogram export: single-page vector PDF (A4→A0, no rasterisation), editable SVG, high-resolution PNG, and one-page landscape print — each carrying the ATOMA mark and the printed legend (filled post, vacant post, temporary/contract, level band).
+- Staff officers (Secretary, Personal/Executive Assistant) sit laterally beside their manager at the manager’s level, connected by a short horizontal line, exactly as in the approved chart.
+- Teams of five or more stack into balanced columns of up to three (spine + stub connectors) to keep sheets narrow; smaller teams sit in a centred row around the reporting line.
+- Organogram export: single-page vector PDF (A4→A0, no rasterisation), editable SVG, high-resolution PNG, an editable **Microsoft Visio drawing (.vdx)**, and one-page landscape print — each carrying the ATOMA mark and the printed legend (filled post, vacant post, temporary/contract, level band).
 - Supervisor relationships are measured against the configured hierarchy and displayed as a data-consistency percentage.
 - L3H receives head-band priority when resolving department heads.
 - Actual supervisor links are primary; bands, titles and direct-report counts resolve leaders and missing links.

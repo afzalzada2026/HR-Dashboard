@@ -1,11 +1,11 @@
 "use client";
 
-import { FileDown, FileType2, Image as ImageIcon, Plus, Printer, ZoomIn, ZoomOut } from "lucide-react";
+import { FileDown, FileText, FileType2, Image as ImageIcon, Plus, Printer, ZoomIn, ZoomOut } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { cn, downloadBlob, downloadDataUrl, fmtNum, slugify, timestampSlug } from "@/lib/format";
 import { useUIStore } from "@/store/ui";
 import { captureElement } from "@/lib/exporters";
-import { buildOrganogramSVG, exportOrganogramPDF, printOrganogram, type OrganogramExportMeta } from "@/lib/org-export";
+import { buildOrganogramSVG, exportOrganogramPDF, exportOrganogramVisio, printOrganogram, type OrganogramExportMeta } from "@/lib/org-export";
 import { buildDivisionOrganogram, CARD_H, CARD_W, DEFAULT_CHILD_CAP, layoutOrganogram, RAIL_W, toDisplayTree, type OrganogramNode, type PlacedNode } from "@/lib/organogram";
 import type { Employee } from "@/lib/types";
 import { Badge, IconButton, Spinner } from "../ui/primitives";
@@ -87,11 +87,14 @@ export function Organogram({ employees, context, scopeLabel, onOpenEmployee }: {
     onOpenEmployee(node.employeeId ?? null);
   };
 
-  const run = async (kind: "pdf" | "svg" | "png" | "print") => {
+  const run = async (kind: "pdf" | "svg" | "png" | "print" | "visio") => {
     setBusy(kind);
     try {
       const stamp = `${slugify(scopeLabel)}-${timestampSlug()}`;
-      if (kind === "svg") {
+      if (kind === "visio") {
+        await exportOrganogramVisio(layout, meta, `org-chart-${stamp}.vdx`);
+        notify("success", "Visio file downloaded", "Open the .vdx in Microsoft Visio to edit every box and line, then save as .vsd/.vsdx.");
+      } else if (kind === "svg") {
         downloadBlob(new Blob([buildOrganogramSVG(layout, meta)], { type: "image/svg+xml;charset=utf-8" }), `org-chart-${stamp}.svg`);
         notify("success", "SVG exported", "Fully editable vector — opens in Illustrator, Visio, draw.io or Office.");
       } else if (kind === "pdf") {
@@ -130,6 +133,7 @@ export function Organogram({ employees, context, scopeLabel, onOpenEmployee }: {
           <IconButton label="Export single-page vector PDF" onClick={() => void run("pdf")} disabled={busy !== null}>{busy === "pdf" ? <Spinner /> : <FileDown />}</IconButton>
           <IconButton label="Export editable SVG" onClick={() => void run("svg")} disabled={busy !== null}>{busy === "svg" ? <Spinner /> : <FileType2 />}</IconButton>
           <IconButton label="Export high-resolution PNG" onClick={() => void run("png")} disabled={busy !== null}>{busy === "png" ? <Spinner /> : <ImageIcon />}</IconButton>
+          <IconButton label="Download editable Visio drawing (.vdx)" onClick={() => void run("visio")} disabled={busy !== null}>{busy === "visio" ? <Spinner /> : <FileText />}</IconButton>
           <IconButton label="Print one page" onClick={() => void run("print")} disabled={busy !== null}><Printer /></IconButton>
         </span>
       </div>

@@ -70,6 +70,10 @@ Legend: `[x]` complete, `[ ]` backlog, `[!]` production dependency/decision.
 - [x] ATOMA chevron logo applied across the app, favicon and exports.
 - [x] Subtree-based leader selection (CEO, division and department heads) with C-suite title handling.
 - [x] Single-page vector organogram PDF (A4→A0), editable SVG, high-res PNG and one-page print.
+- [x] Visio-style balance: head on the centre line, each manager centred over their team, reports split left/right.
+- [x] Lateral staff officers (Secretary/Assistant) beside their manager.
+- [x] Team clusters: 5+ reports stack in columns of 3 with spine/stub connectors; smaller teams in a centred row.
+- [x] Editable Microsoft Visio drawing export (.vdx) with real Visio shapes.
 - [x] Dashboard PDF: blue ATOMA band on page one only.
 - [x] Page-level ErrorBoundary and chart option isolation so no widget can blank the page.
 - [x] Footer credit: “Made with ♥ by Mohibullah Afzalzada”.

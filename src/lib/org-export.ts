@@ -1,4 +1,5 @@
 import { ATOMA_ACCENT, ATOMA_BLUE, ATOMA_MARK_PATHS, ATOMA_NAVY } from "./brand";
+import { downloadBlob } from "./format";
 import { CARD_H, CARD_W, type OrganogramLayout, RAIL_W } from "./organogram";
 
 export interface OrganogramExportMeta {
@@ -249,6 +250,137 @@ export async function exportOrganogramPDF(layout: OrganogramLayout, meta: Organo
   doc.setFontSize(Math.max(4, 8.5 * scale));
   doc.text("ATOMA · Organization chart · reporting lines follow each employee’s line manager", mapX(PAD), mapY(content.height - 8));
   doc.save(fileName);
+}
+
+const U = 1 / 96; // design pixels → Visio inches
+const VDX_HEADER = 86;
+
+function vdxEscape(value: string): string {
+  return value.replace(/[<>&"']/g, (char) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&apos;" })[char] ?? char);
+}
+
+function vdxText(title: string, name: string, level: string, size = 0.075): string {
+  return `<Section N="Character"><Row IX="0"><Cell N="Font" V="0"/><Cell N="Size" V="${size}"/><Cell N="Style" V="1"/><Cell N="Color" V="#0F172A"/></Row><Row IX="1"><Cell N="Font" V="0"/><Cell N="Size" V="${size * 0.92}"/><Cell N="Style" V="0"/><Cell N="Color" V="#334155"/></Row></Section><Section N="Paragraph"><Row IX="0"><Cell N="HorzAlign" V="1"/><Cell N="SpBefore" V="0"/><Cell N="SpAfter" V="0"/><Cell N="LineRule" V="0"/><Cell N="LineSpace" V="0.88"/></Row></Section><Text>${vdxEscape(title)}${name ? `&#10;<cp IX="1"/>${vdxEscape(name)}` : ""}${level ? ` <cp IX="1"/>${vdxEscape(level)}` : ""}</Text>`;
+}
+
+function vdxRect(id: number, x: number, y: number, w: number, h: number, fill: string, stroke: string, dashed: boolean, text: string): string {
+  const px = x * U;
+  const py = y * U;
+  const pw = Math.max(w * U, 0.08);
+  const ph = Math.max(h * U, 0.08);
+  return `<Shape ID="${id}" Type="Shape" LineStyle="0" FillStyle="0" TextStyle="0">
+<Cell N="PinX" V="${px.toFixed(3)}"/><Cell N="PinY" V="${py.toFixed(3)}"/><Cell N="Width" V="${pw.toFixed(3)}"/><Cell N="Height" V="${ph.toFixed(3)}"/>
+<Cell N="LocPinX" V="${(pw / 2).toFixed(3)}"/><Cell N="LocPinY" V="${(ph / 2).toFixed(3)}"/>
+<Cell N="FillForegnd" V="${fill}"/><Cell N="FillPattern" V="1"/><Cell N="LineColor" V="${stroke}"/><Cell N="LineWeight" V="0.6"/><Cell N="LinePattern" V="${dashed ? 2 : 1}"/><Cell N="TextBkgnd" V="#FFFFFF"/>
+<Section N="Geometry" IX="0"><Cell N="NoFill" V="1"/><Cell N="NoLine" V="1"/>
+<Row T="MoveTo" IX="1"><Cell N="X" V="0"/><Cell N="Y" V="0"/></Row>
+<Row T="LineTo" IX="2"><Cell N="X" V="${pw.toFixed(3)}"/><Cell N="Y" V="0"/></Row>
+<Row T="LineTo" IX="3"><Cell N="X" V="${pw.toFixed(3)}"/><Cell N="Y" V="${ph.toFixed(3)}"/></Row>
+<Row T="LineTo" IX="4"><Cell N="X" V="0"/><Cell N="Y" V="${ph.toFixed(3)}"/></Row>
+<Row T="LineTo" IX="5"><Cell N="X" V="0"/><Cell N="Y" V="0"/></Row>
+</Section>${text}</Shape>`;
+}
+
+function vdxLine(id: number, points: [number, number][], stroke: string, weight = 0.5): string {
+  const xs = points.map((p) => p[0]);
+  const ys = points.map((p) => p[1]);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const w = Math.max((maxX - minX) * U, 0.01);
+  const h = Math.max((maxY - minY) * U, 0.01);
+  const rows = points
+    .map(([x, y], index) => `<Row T="${index === 0 ? "MoveTo" : "LineTo"}" IX="${index + 1}"><Cell N="X" V="${((x - minX) * U).toFixed(3)}"/><Cell N="Y" V="${((y - minY) * U).toFixed(3)}"/></Row>`)
+    .join("");
+  return `<Shape ID="${id}" Type="Shape" LineStyle="0" FillStyle="0" TextStyle="0">
+<Cell N="PinX" V="${(((minX + maxX) / 2) * U).toFixed(3)}"/><Cell N="PinY" V="${(((minY + maxY) / 2) * U).toFixed(3)}"/><Cell N="Width" V="${w.toFixed(3)}"/><Cell N="Height" V="${h.toFixed(3)}"/>
+<Cell N="LocPinX" V="${(w / 2).toFixed(3)}"/><Cell N="LocPinY" V="${(h / 2).toFixed(3)}"/>
+<Cell N="FillForegnd" V="#FFFFFF"/><Cell N="FillPattern" V="0"/><Cell N="LineColor" V="${stroke}"/><Cell N="LineWeight" V="${weight}"/><Cell N="LinePattern" V="1"/>
+<Section N="Geometry" IX="0"><Cell N="NoFill" V="1"/><Cell N="NoLine" V="0"/>${rows}</Section></Shape>`;
+}
+
+/**
+ * Visio XML Drawing (.vdx) — opens directly in Microsoft Visio (and can be re-saved there
+ * as .vsd / .vsdx). Boxes, connectors, level rail, separators and legend are real Visio
+ * shapes, so the whole chart stays editable in Visio.
+ */
+export function buildVisioVDX(layout: OrganogramLayout, meta: OrganogramExportMeta): string {
+  const contentHeight = VDX_HEADER + layout.height + 120;
+  const width = layout.width + 60;
+  const offsetX = 30;
+  const toY = (screenY: number) => contentHeight - screenY;
+  const shapes: string[] = [];
+  let id = 1;
+
+  // Header text
+  shapes.push(`<Shape ID="${id++}" Type="Shape" LineStyle="0" FillStyle="0" TextStyle="0"><Cell N="PinX" V="${((width / 2) * U).toFixed(3)}"/><Cell N="PinY" V="${(toY(30) * U).toFixed(3)}"/><Cell N="Width" V="${((width - 80) * U).toFixed(3)}"/><Cell N="Height" V="${(40 * U).toFixed(3)}"/><Cell N="LocPinX" V="${(((width - 80) / 2) * U).toFixed(3)}"/><Cell N="LocPinY" V="${(20 * U).toFixed(3)}"/><Cell N="FillPattern" V="0"/><Cell N="LinePattern" V="0"/>
+<Section N="Character"><Row IX="0"><Cell N="Font" V="0"/><Cell N="Size" V="0.16"/><Cell N="Style" V="1"/><Cell N="Color" V="#0D47A1"/></Row></Section>
+<Section N="Paragraph"><Row IX="0"><Cell N="HorzAlign" V="1"/></Row></Section>
+<Text>${vdxEscape(`ATOMA · ${meta.title}`)}</Text></Shape>`);
+  shapes.push(`<Shape ID="${id++}" Type="Shape" LineStyle="0" FillStyle="0" TextStyle="0"><Cell N="PinX" V="${((width / 2) * U).toFixed(3)}"/><Cell N="PinY" V="${(toY(52) * U).toFixed(3)}"/><Cell N="Width" V="${((width - 80) * U).toFixed(3)}"/><Cell N="Height" V="${(24 * U).toFixed(3)}"/><Cell N="LocPinX" V="${(((width - 80) / 2) * U).toFixed(3)}"/><Cell N="LocPinY" V="${(12 * U).toFixed(3)}"/><Cell N="FillPattern" V="0"/><Cell N="LinePattern" V="0"/>
+<Section N="Character"><Row IX="0"><Cell N="Font" V="0"/><Cell N="Size" V="0.09"/><Cell N="Color" V="#64748B"/></Row></Section>
+<Section N="Paragraph"><Row IX="0"><Cell N="HorzAlign" V="1"/></Row></Section>
+<Text>${vdxEscape(`${meta.scope} · prepared by ${meta.generatedBy}`)}</Text></Shape>`);
+
+  for (const band of layout.bands) {
+    shapes.push(
+      vdxRect(id++, offsetX, VDX_HEADER + band.y, RAIL_W, band.height, "#F1F5F9", "#CBD5E1", false, `<Section N="Character"><Row IX="0"><Cell N="Font" V="0"/><Cell N="Size" V="0.14"/><Cell N="Style" V="1"/><Cell N="Color" V="#0F172A"/></Row></Section><Section N="Paragraph"><Row IX="0"><Cell N="HorzAlign" V="1"/></Row></Section><Text>${band.level}</Text>`)
+    );
+    shapes.push(vdxLine(id++, [[offsetX, toY(VDX_HEADER + band.y + band.height)], [offsetX + layout.width, toY(VDX_HEADER + band.y + band.height)]], "#F59E0B", 1.4));
+  }
+
+  for (const edge of layout.edges) {
+    const stroke = edge.kind === "staff" ? "#64748B" : "#334155";
+    shapes.push(vdxLine(id++, edge.points.map(([x, y]) => [offsetX + x, toY(VDX_HEADER + y)]), stroke, 0.6));
+  }
+
+  for (const item of layout.nodes) {
+    const node = item.node;
+    const fill = node.temporary ? "#FDE68A" : "#FFFFFF";
+    const stroke = node.vacant || node.moreOf ? "#64748B" : node.temporary ? "#F59E0B" : "#334155";
+    const level = node.levelLabel ?? node.level;
+    shapes.push(
+      vdxRect(id++, offsetX + item.x - CARD_W / 2, VDX_HEADER + item.y, CARD_W, CARD_H, fill, stroke, node.vacant || Boolean(node.moreOf), vdxText(node.title, node.name, node.level === level ? "" : level))
+    );
+  }
+
+  const legendY = VDX_HEADER + layout.height + 34;
+  const legend: [string, string, string, boolean][] = [
+    ["Filled post", "#FFFFFF", "#334155", false],
+    ["Vacant post", "#FFFFFF", "#64748B", true],
+    ["Temporary / contract", "#FDE68A", "#F59E0B", false],
+    ["Level band", "#F1F5F9", "#F59E0B", false],
+  ];
+  let legendX = offsetX;
+  for (const [label, fill, stroke, dashed] of legend) {
+    shapes.push(vdxRect(id++, legendX, legendY, 34, 18, fill, stroke, dashed, ""));
+    shapes.push(`<Shape ID="${id++}" Type="Shape" LineStyle="0" FillStyle="0" TextStyle="0"><Cell N="PinX" V="${((legendX + 120) * U).toFixed(3)}"/><Cell N="PinY" V="${(toY(legendY + 9) * U).toFixed(3)}"/><Cell N="Width" V="${(170 * U).toFixed(3)}"/><Cell N="Height" V="${(18 * U).toFixed(3)}"/><Cell N="LocPinX" V="${(85 * U).toFixed(3)}"/><Cell N="LocPinY" V="${(9 * U).toFixed(3)}"/><Cell N="FillPattern" V="0"/><Cell N="LinePattern" V="0"/>
+<Section N="Character"><Row IX="0"><Cell N="Font" V="0"/><Cell N="Size" V="0.08"/><Cell N="Color" V="#334155"/></Row></Section>
+<Section N="Paragraph"><Row IX="0"><Cell N="HorzAlign" V="0"/></Row></Section>
+<Text>${label}</Text></Shape>`);
+    legendX += 210;
+  }
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<VisioDocument xmlns="urn:schemas-microsoft-com:office:visio" genericType="0">
+<DocumentProperties><Title>${vdxEscape(meta.title)}</Title><Creator>ATOMA Workforce Intelligence</Creator><Company>ATOMA</Company></DocumentProperties>
+<StyleSheets><StyleSheet ID="0" NameU="No Style" Name="No Style"><Cell N="FillForegnd" V="#FFFFFF"/><Cell N="FillPattern" V="1"/><Cell N="LineColor" V="#334155"/><Cell N="LineWeight" V="0.5"/><Cell N="TextBkgnd" V="#FFFFFF"/></StyleSheet></StyleSheets>
+<DocumentSheet NameU="Document" Name="Document"/>
+<Masters/>
+<Pages><Page ID="0" NameU="Page-1" Name="Page-1" Background="0" BackPage="0">
+<PageSheet LineStyle="0" FillStyle="0" TextStyle="0">
+<Cell N="PageWidth" V="${(width * U).toFixed(3)}"/><Cell N="PageHeight" V="${(contentHeight * U).toFixed(3)}"/>
+<Cell N="PrintPageOrientation" V="2"/><Cell N="PageScale" V="1"/><Cell N="DrawingScale" V="1"/><Cell N="DrawingSizeType" V="3"/><Cell N="DrawingScaleType" V="0"/>
+</PageSheet>
+<Shapes>${shapes.join("")}</Shapes>
+</Page></Pages>
+</VisioDocument>`;
+}
+
+export async function exportOrganogramVisio(layout: OrganogramLayout, meta: OrganogramExportMeta, fileName: string): Promise<void> {
+  const xml = buildVisioVDX(layout, meta);
+  downloadBlob(new Blob([xml], { type: "application/vnd.ms-visio" }), fileName);
 }
 
 /** Prints the organogram on one landscape page via a hidden frame (no popup blockers involved). */
