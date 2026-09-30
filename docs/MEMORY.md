@@ -33,7 +33,7 @@ This file is a concise handoff for future maintainers and AI coding sessions. Re
 9. **Remarks-derived HR signals.** Turnover/promotion are inferred only because the source schema lacks authoritative events. Replace when fields become available.
 10. **Exports respect security scope and filters.** View snapshots reflect hidden widgets; structured workbook contains all approved filtered columns.
 11. **Capture is full-scroll/high-DPI.** Do not replace the readiness/safe-scale/PNG-slice pipeline with a simple viewport JPEG capture.
-12. **Org hierarchy is supervisor-first and level-aware.** Fixed order L6 → L5 → L4 → L3H → L3 → L2 → L1. Divisional scope renders the approved top-down organogram: level rail, elbow connectors, dotted vacant posts, yellow temporary cards, reports in a centred row under their manager, and “+N more” cards that bound rendering for huge divisions. Leaders (CEO/division/department) are picked by real reporting-subtree size, then band, then title (C-suite abbreviations recognised). Organogram export is vector: single-page PDF (A4→A0), editable SVG, PNG, print.
+12. **Org hierarchy is line-manager-first; levels are labels.** Rail order L6 → L5 → L4 → L3H → L3 → L2 → L1, but an L2 employee may report straight to an L5 manager and is drawn that way. Bands are flexible: dense bands wrap to ~8 cards/row and grow taller. Department sheets keep the division head on top. Leaders score scope-root + subtree + band + GM/DGM/C-suite title + scope name in title; supervisor names match fuzzy (Mamoozai ≈ Mamozai). Exports are vector (single-page PDF A4→A0, editable SVG, PNG, print) with the ATOMA chevron mark and printed legend.
 
 ## Dashboard personalization IDs
 

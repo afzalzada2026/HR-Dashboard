@@ -41,7 +41,10 @@ function Card({ item, onActivate, highlight }: { item: PlacedNode; onActivate: (
         {isMore && <Plus className="mr-0.5 inline h-3 w-3" />}
         {node.title}
       </p>
-      <p className="truncate text-[10px] leading-tight text-slate-700">{node.name}</p>
+      <p className="truncate text-[10px] leading-tight text-slate-700">
+        {node.name}
+        <span className="ml-1 rounded-full bg-slate-100 px-1 text-[8px] font-bold text-slate-500">{node.level}</span>
+      </p>
       {node.reports > 0 && !isMore && (
         <span className="absolute -top-2 -right-2 rounded-full border border-white bg-slate-700 px-1.5 text-[9px] leading-[15px] font-semibold text-white shadow">{node.reports}</span>
       )}
@@ -54,7 +57,7 @@ function Card({ item, onActivate, highlight }: { item: PlacedNode; onActivate: (
  * right-angle connectors (reports spread left/right of the reporting line), dotted
  * vacant posts, yellow temporary cards and expandable “+N more” groups.
  */
-export function Organogram({ employees, scopeLabel, onOpenEmployee }: { employees: Employee[]; scopeLabel: string; onOpenEmployee: (id: string | null) => void }) {
+export function Organogram({ employees, context, scopeLabel, onOpenEmployee }: { employees: Employee[]; context?: Employee[]; scopeLabel: string; onOpenEmployee: (id: string | null) => void }) {
   const [zoom, setZoom] = useState(1);
   const [highlight, setHighlight] = useState<string | null>(null);
   const [caps, setCaps] = useState<Record<string, number>>({});
@@ -63,7 +66,7 @@ export function Organogram({ employees, scopeLabel, onOpenEmployee }: { employee
   const session = useUIStore((state) => state.session);
   const canvas = useRef<HTMLDivElement>(null);
 
-  const tree = useMemo(() => buildDivisionOrganogram(employees), [employees]);
+  const tree = useMemo(() => buildDivisionOrganogram(context ?? employees, employees), [employees, context]);
   const display = useMemo(() => (tree ? toDisplayTree(tree, caps) : null), [tree, caps]);
   const layout = useMemo(() => layoutOrganogram(display?.tree ?? null), [display]);
 

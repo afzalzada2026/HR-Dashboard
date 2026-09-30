@@ -61,6 +61,13 @@ Legend: `[x]` complete, `[ ]` backlog, `[!]` production dependency/decision.
 - [x] Supervisor-first recursive reporting hierarchy with cycle protection.
 - [x] Classic HR-style divisional organogram (level rail, elbow connectors, vacant/temporary cards).
 - [x] Centred reporting rows (two left / two right) and bounded “+N more” expansion for very large divisions.
+- [x] Flexible level bands: dense L2/L1 bands wrap into extra rows and grow taller (print-friendly width).
+- [x] Pure line-manager mapping across levels (L2 can report directly to L5).
+- [x] Tolerant supervisor matching (exact, e-mail, unique fuzzy name variants).
+- [x] Leader rules: scope-root + subtree + GM/DGM/C-suite titles + division/department name in title.
+- [x] Per-department sheets for divisions over 80 people, each topped by the division head.
+- [x] Printed legend (filled / vacant / temporary / level band) on screen, SVG, PDF and print.
+- [x] ATOMA chevron logo applied across the app, favicon and exports.
 - [x] Subtree-based leader selection (CEO, division and department heads) with C-suite title handling.
 - [x] Single-page vector organogram PDF (A4→A0), editable SVG, high-res PNG and one-page print.
 - [x] Dashboard PDF: blue ATOMA band on page one only.

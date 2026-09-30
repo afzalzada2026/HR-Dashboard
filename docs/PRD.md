@@ -128,9 +128,12 @@ Chart clicks cross-filter the entire application. Charts support table mode, foc
 - Fixed ATOMA top-to-bottom bands: L6 → L5 → L4 → L3H → L3 → L2 → L1.
 - Selecting a division renders the approved HR-style organogram: level rail on the left, orange band separators, centred subtrees and right-angle connectors; Department further scopes the chart.
 - Vacant leadership posts appear as dotted cards with “(Vacant)”; temporary/contract staff appear on yellow cards.
-- Reports sit in a centred row under their manager — four reports split two left and two right of the reporting line; no vertical stacking.
-- Large teams collapse into expandable “+N more” cards, keeping even 20,000-person divisions fast and readable.
-- Organogram export: single-page vector PDF (A4→A0, no rasterisation), editable SVG, high-resolution PNG, and one-page landscape print.
+- Reporting lines follow each employee’s line manager directly, regardless of level (an L2 employee reporting to an L5 manager is drawn that way).
+- Reports sit in a centred row under their manager — four reports split two left and two right of the reporting line.
+- Level bands are flexible: a busy band (typically L2/L1) wraps into several rows and grows taller, so charts stay print-friendly instead of stretching into one endless line.
+- Divisions above 80 people render one sheet per department, each topped by the division head/director and containing all staff of that department.
+- Vacant posts are visually supported (dotted cards) but not synthesised for now; temporary/contract staff stay highlighted in yellow.
+- Organogram export: single-page vector PDF (A4→A0, no rasterisation), editable SVG, high-resolution PNG, and one-page landscape print — each carrying the ATOMA mark and the printed legend (filled post, vacant post, temporary/contract, level band).
 - Supervisor relationships are measured against the configured hierarchy and displayed as a data-consistency percentage.
 - L3H receives head-band priority when resolving department heads.
 - Actual supervisor links are primary; bands, titles and direct-report counts resolve leaders and missing links.

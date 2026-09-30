@@ -232,8 +232,11 @@ Missing division causes a 401 in production. The API filters employee rows befor
 - CEO/division/department heads are resolved from fixed seniority + title + direct-report evidence.
 - Department employees form recursive nodes from actual supervisor links; malformed cycles are removed.
 - UI scopes Division first, then Department. A selected division renders the classic top-down organogram.
-- `src/lib/organogram.ts` produces geometry: level bands (L6→L1), leaf packing with parents centred over children (reports split left/right of the reporting line), right-angle elbow connectors, dotted vacant placeholders, temporary-staff flags and a bounded display tree that collapses large teams into “+N more” cards.
-- `src/lib/org-export.ts` renders the same geometry as editable SVG, single-page vector PDF (A4→A0, no images), and one-page print output.
+- `src/lib/organogram.ts` builds the tree purely from line-manager links (levels are labels, so cross-level reporting such as L2→L5 is preserved), then lays out flexible level bands: leaf packing with parents centred over children, row wrapping at ~8 cards per band row, clearance-checked connectors (direct elbow, or spine-and-channel routing when blocked), temporary-staff flags, and a bounded display tree that collapses huge teams into “+N more” cards.
+- Supervisor matching is tolerant: exact → e-mail → unique fuzzy name match (handles Mamoozai/Mamozai-style variants).
+- Leader selection scores scope-root (reports outside the scope), reporting-subtree size, company band, title (incl. GM/DGM and C-suite abbreviations), and division/department name in the title.
+- Department charts are built over the department population while retaining the leadership chain, so the division head stays on top.
+- `src/lib/org-export.ts` renders the same geometry as editable SVG, single-page vector PDF (A4→A0, no images) and one-page print, including the ATOMA mark (`src/lib/brand.ts`) and the printed legend.
 
 ## 10. Afghanistan map architecture
 

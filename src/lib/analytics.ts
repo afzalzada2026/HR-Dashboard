@@ -1,4 +1,5 @@
 import { monthLabel } from "./format";
+import { dice } from "./mapping";
 import { YEAR_MS } from "./normalize";
 import type { Employee } from "./types";
 
@@ -181,24 +182,66 @@ export function hiresComparison(emps: Employee[], now: number) {
 
 /* ------------------------------------------------------------- hierarchy */
 
+/** Normalises person names for matching: Unicode, case, punctuation and spacing variants. */
+export function personKey(value: string): string {
+  return value
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function nameTokens(key: string): string[] {
+  return key.split(" ").filter(Boolean);
+}
+
 export function buildIndex(emps: Employee[]) {
   const byName = new Map<string, Employee>();
   const byEmail = new Map<string, Employee>();
-  for (const e of emps) {
-    byName.set(e.fullName.toLowerCase(), e);
-    if (e.email) byEmail.set(e.email.toLowerCase(), e);
+  const roster: { employee: Employee; key: string; tokens: string[] }[] = [];
+  for (const employee of emps) {
+    const key = personKey(employee.fullName);
+    if (key && !byName.has(key)) byName.set(key, employee);
+    if (employee.email) byEmail.set(employee.email.toLowerCase(), employee);
+    if (key) roster.push({ employee, key, tokens: nameTokens(key) });
   }
-  return { byName, byEmail };
+  return { byName, byEmail, roster };
 }
 
+/**
+ * Resolves a supervisor from the source "Direct Supervisor" text: exact name, e-mail,
+ * then tolerant name matching (spelling variants such as Mamoozai / Mamozai).
+ */
 export function findSupervisor(e: Employee, idx: ReturnType<typeof buildIndex>): Employee | null {
-  if (e.supervisor) {
-    const s = idx.byName.get(e.supervisor.toLowerCase());
-    if (s && s !== e) return s;
+  const nameKey = personKey(e.supervisor);
+  if (nameKey) {
+    const exact = idx.byName.get(nameKey);
+    if (exact && exact !== e) return exact;
+    const tokens = nameTokens(nameKey);
+    const distinctive = tokens.filter((token) => token.length >= 5);
+    let best: Employee | null = null;
+    let bestScore = 0;
+    let second = 0;
+    for (const candidate of idx.roster) {
+      if (candidate.employee === e) continue;
+      const shared = candidate.tokens.filter((token) => tokens.some((other) => token === other || (token.length >= 5 && other.length >= 5 && (token.startsWith(other.slice(0, 5)) || other.startsWith(token.slice(0, 5))))));
+      const quick = shared.length >= Math.min(2, tokens.length) || (distinctive.length > 0 && shared.length >= 1);
+      if (!quick) continue;
+      const score = dice(nameKey, candidate.key);
+      if (score > bestScore) {
+        second = bestScore;
+        bestScore = score;
+        best = candidate.employee;
+      } else if (score > second) {
+        second = score;
+      }
+    }
+    if (best && bestScore >= 0.7 && bestScore - second >= 0.03) return best;
   }
   if (e.supervisorEmail) {
-    const s = idx.byEmail.get(e.supervisorEmail.toLowerCase());
-    if (s && s !== e) return s;
+    const byEmail = idx.byEmail.get(e.supervisorEmail.toLowerCase());
+    if (byEmail && byEmail !== e) return byEmail;
   }
   return null;
 }
@@ -669,9 +712,10 @@ export function descendantCounts(kids: Map<string, Employee[]>): Map<string, num
 
 const TITLE_BOOSTS: [RegExp, number][] = [
   [/\b(ceo|chief executive|managing director|president)\b/i, 60],
-  [/\b(cio|cmo|cfo|coo|chro|cto|cso|cpo|chief\s+[a-z&]+\s+officer)\b/i, 55],
-  [/\b(vice president|\bvp\b|director|division head|head of\b)/i, 42],
-  [/\b(head|general manager|sr\.?\s*manager|senior manager|lead)\b/i, 26],
+  [/\b(cio|cmo|cfo|coo|chro|cto|cso|cpo)\b|chief\s+[a-z&]+\s+officer/i, 55],
+  [/\b(gm|dgm|agm|general manager|deputy general manager|country manager)\b/i, 48],
+  [/\b(vice president|\bvp\b|director|division head|head of)\b/i, 42],
+  [/\b(head|sr\.?\s*manager|senior manager|lead)\b/i, 26],
   [/\b(manager|supervisor|coordinator)\b/i, 12],
 ];
 
@@ -685,16 +729,30 @@ export function titleScore(title: string): number {
  * Chooses the leader of a scope: the person with the largest real reporting subtree,
  * then the highest company band, then leadership title, then direct reports, then name.
  */
-export function pickLeader(candidates: Employee[], options: { kids?: Map<string, Employee[]>; seniority: (employee: Employee) => number; titleRe?: RegExp }): Employee | null {
+export function pickLeader(candidates: Employee[], options: { kids?: Map<string, Employee[]>; seniority: (employee: Employee) => number; titleRe?: RegExp; scopeName?: string }): Employee | null {
   const counts = options.kids ? descendantCounts(options.kids) : new Map<string, number>();
+  const parentOf = new Map<string, string>();
+  options.kids?.forEach((children, parentId) => children.forEach((child) => parentOf.set(child.id, parentId)));
+  const scopeIds = new Set(candidates.map((candidate) => candidate.id));
+  const scopeTokens = (options.scopeName ?? "")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token.length >= 4 && token !== "unit" && token !== "team");
   let best: Employee | null = null;
   let bestScore = -Infinity;
   for (const employee of candidates) {
     const descendants = counts.get(employee.id) ?? 0;
+    const parentId = parentOf.get(employee.id);
+    // The scope head normally reports outside the scope (e.g. division head → CEO).
+    const scopeRoot = parentId && scopeIds.has(parentId) ? 0 : 80;
+    const title = employee.title.toLowerCase();
+    const scopeMatch = scopeTokens.length > 0 && scopeTokens.some((token) => title.includes(token)) ? 35 : 0;
     const score =
+      scopeRoot +
       descendants * 1.35 +
       options.seniority(employee) * 26 +
       titleScore(employee.title) +
+      scopeMatch +
       (options.titleRe?.test(employee.title) ? 24 : 0) +
       Math.min(employee.directReports, 80) * 0.6;
     const better = score > bestScore + 1e-9 || (Math.abs(score - bestScore) <= 1e-9 && best !== null && employee.fullName.localeCompare(best.fullName) < 0);
@@ -706,8 +764,8 @@ export function pickLeader(candidates: Employee[], options: { kids?: Map<string,
   return best;
 }
 
-function pickHead(list: Employee[], re: RegExp, profile: OrganizationLevelProfile, kids?: Map<string, Employee[]>): Employee | null {
-  return pickLeader(list, { kids, seniority: (employee) => seniority(employee, profile), titleRe: re });
+function pickHead(list: Employee[], re: RegExp, profile: OrganizationLevelProfile, kids?: Map<string, Employee[]>, scopeName?: string): Employee | null {
+  return pickLeader(list, { kids, seniority: (employee) => seniority(employee, profile), titleRe: re, ...(scopeName ? { scopeName } : {}) });
 }
 
 const femPct = (list: Employee[]) => (list.length ? (list.filter((employee) => employee.gender === "Female").length / list.length) * 100 : 0);
@@ -764,11 +822,11 @@ export function buildOrgTree(emps: Employee[]): OrgNode {
   const divisions: OrgNode[] = [];
   const byDiv = [...groupBy(emps, (employee) => employee.division || "Unassigned").entries()].sort((a, b) => b[1].length - a[1].length);
   for (const [division, list] of byDiv) {
-    const head = pickHead(list.filter((employee) => employee !== ceo), DIV_HEAD_RE, profile, kids);
+    const head = pickHead(list.filter((employee) => employee !== ceo), DIV_HEAD_RE, profile, kids, division);
     const departments: OrgNode[] = [];
     const byDepartment = [...groupBy(list, (employee) => employee.department || "General").entries()].sort((a, b) => b[1].length - a[1].length);
     for (const [department, departmentEmployees] of byDepartment) {
-      const departmentHead = pickHead(departmentEmployees.filter((employee) => employee !== ceo && employee !== head), DEPT_HEAD_RE, profile, kids);
+      const departmentHead = pickHead(departmentEmployees.filter((employee) => employee !== ceo && employee !== head), DEPT_HEAD_RE, profile, kids, department);
       const members = departmentEmployees.filter((employee) => employee !== departmentHead && employee !== head && employee !== ceo);
       departments.push({
         id: `dept:${division}:${department}`,

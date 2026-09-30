@@ -106,6 +106,13 @@ function OrgInner() {
   );
   const department = departments.includes(selectedDepartment) ? selectedDepartment : "";
   const scopedEmployees = useMemo(() => filtered.filter((employee) => (!division || employee.division === division) && (!department || employee.department === department)), [filtered, division, department]);
+  const divisionEmployees = useMemo(() => (division ? filtered.filter((employee) => employee.division === division) : filtered), [filtered, division]);
+  const departmentSheets = useMemo(() => {
+    if (!division || department || divisionEmployees.length <= 80) return [];
+    const groups = new Map<string, typeof divisionEmployees>();
+    for (const employee of divisionEmployees) groups.set(employee.department, [...(groups.get(employee.department) ?? []), employee]);
+    return [...groups.entries()].map(([name, list]) => ({ name, list })).sort((a, b) => b.list.length - a.list.length);
+  }, [division, department, divisionEmployees]);
   const fullTree = useMemo(() => buildOrgTree(filtered), [filtered]);
   const tree = useMemo(() => scopedTree(fullTree, division, department), [fullTree, division, department]);
   const levelProfile = useMemo(() => organizationLevelProfile(scopedEmployees), [scopedEmployees]);
@@ -264,9 +271,30 @@ function OrgInner() {
       </div>
 
       {division ? (
-        <div className="glass overflow-hidden rounded-2xl" data-export-expand="true">
-          <Organogram employees={scopedEmployees} scopeLabel={`${division}${department ? ` · ${department}` : ""}`} onOpenEmployee={openEmployee} />
-        </div>
+        department ? (
+          <div className="glass overflow-hidden rounded-2xl" data-export-expand="true">
+            <Organogram employees={scopedEmployees} context={divisionEmployees} scopeLabel={`${division} · ${department}`} onOpenEmployee={openEmployee} />
+          </div>
+        ) : departmentSheets.length ? (
+          <div className="space-y-4">
+            {departmentSheets.map((sheet) => (
+              <section key={sheet.name} className="glass overflow-hidden rounded-2xl" data-export-expand="true">
+                <header className="flex flex-wrap items-center justify-between gap-2 border-b border-line bg-surface-muted/50 px-4 py-2.5">
+                  <div>
+                    <p className="text-[10px] font-semibold tracking-[0.14em] text-accent uppercase">{division} · department sheet</p>
+                    <h3 className="text-[15px] font-bold text-fg">{sheet.name}</h3>
+                  </div>
+                  <Badge tone="primary">{fmtNum(sheet.list.length)} employees · division head on top</Badge>
+                </header>
+                <Organogram employees={sheet.list} context={divisionEmployees} scopeLabel={`${division} · ${sheet.name}`} onOpenEmployee={openEmployee} />
+              </section>
+            ))}
+          </div>
+        ) : (
+          <div className="glass overflow-hidden rounded-2xl" data-export-expand="true">
+            <Organogram employees={divisionEmployees} scopeLabel={division} onOpenEmployee={openEmployee} />
+          </div>
+        )
       ) : (
       <div
         ref={canvas}
