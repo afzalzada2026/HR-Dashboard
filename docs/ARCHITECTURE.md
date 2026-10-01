@@ -237,7 +237,11 @@ Missing division causes a 401 in production. The API filters employee rows befor
 - Leader selection scores scope-root (reports outside the scope), reporting-subtree size, company band, title (incl. GM/DGM and C-suite abbreviations), and division/department name in the title.
 - Department charts are built over the department population while retaining the leadership chain, so the division head stays on top.
 - Layout is the approved Visio arrangement: compact row packing with each manager centred over their team’s span (reports split left/right of the reporting line, middle report on the axis for odd counts); leaf teams of 5+ stack into columns of 3 with spine-and-stub connectors; staff officers (Secretary/Assistant) sit laterally beside their manager and may have their own reports; level bands grow in height where a level is dense.
-- `src/lib/org-export.ts` renders the same geometry as editable SVG, single-page vector PDF (A4→A0, no images), one-page print, and a Microsoft Visio XML drawing (`.vdx`) with real Visio shapes for every card, connector, rail band and legend item.
+- `src/lib/organogram.ts` is the stable public entry that re-exports the layers below (kept so callers never break when internals are split).
+- `src/lib/orgtree.ts` is the reporting engine: link resolution (override → e-mail → employee number → exact name → fuzzy name → department/division/top inference), cycle repair, one scored head per division with reasons and manual overrides, scope roots and link-quality reporting.
+- `src/lib/orglayout.ts` is the landscape layout: horizontal level rows, dominant-actual-level labelling with “cont.” continuation rows, roster cards for 5+ leaf reports, centre aisles for even branch sets, lateral staff officers, and bus connectors that never cross cards.
+- `src/lib/organogram-levels.ts` owns the L6→L1 vocabulary shared by tree, layout and export.
+- `src/lib/org-export.ts` renders the same geometry as editable SVG, single-page vector PDF, one-page print, and a native Microsoft Visio drawing (`.vsdx` via `@klyratech/mermaid-to-visio`, with a `.vdx` XML fallback).
 
 ## 10. Afghanistan map architecture
 

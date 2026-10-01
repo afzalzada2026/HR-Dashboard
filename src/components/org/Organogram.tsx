@@ -1,116 +1,118 @@
 "use client";
 
-import { FileDown, FileText, FileType2, Image as ImageIcon, Plus, Printer, ZoomIn, ZoomOut } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
-import { cn, downloadBlob, downloadDataUrl, fmtNum, slugify, timestampSlug } from "@/lib/format";
-import { useUIStore } from "@/store/ui";
-import { captureElement } from "@/lib/exporters";
-import { buildOrganogramSVG, exportOrganogramPDF, exportOrganogramVisio, printOrganogram, type OrganogramExportMeta } from "@/lib/org-export";
-import { buildDivisionOrganogram, CARD_H, CARD_W, DEFAULT_CHILD_CAP, layoutOrganogram, RAIL_W, toDisplayTree, type OrganogramNode, type PlacedNode } from "@/lib/organogram";
-import type { Employee } from "@/lib/types";
+import { Download, FileDown, FileText, Printer, ZoomIn, ZoomOut } from "lucide-react";
+import { useMemo, useState } from "react";
+import { fmtNum, slugify, timestampSlug } from "@/lib/format";
+import { LEVEL_ORDER } from "@/lib/organogram-levels";
+import type { LayerInfo, LNode, OrgLayout } from "@/lib/orglayout";
+import { downloadOrgSvg, downloadOrgVectorPdf, downloadOrgVisio, LEVEL_COLORS, printOrgSvg, type OrgExportOpts } from "@/lib/org-export";
+import { employeeStatus, type OrgNode } from "@/lib/orgtree";
 import { Badge, IconButton, Spinner } from "../ui/primitives";
 
-const LEVEL_FILL: Record<string, string> = {
-  L6: "#062B5B", L5: "#0D47A1", L4: "#1E6FE0", L3H: "#F59E0B", L3: "#00A8FF", L2: "#64748B", L1: "#94A3B8",
-};
+const displayLevel = (s?: string) => (s || "—").replace(/^L/i, "");
+const initials = (name: string, first = "", last = "") => ((first[0] ?? name[0] ?? "") + (last[0] ?? "")).toUpperCase();
+const levelColor = (level?: string) => LEVEL_COLORS[(level ?? "L2") as keyof typeof LEVEL_COLORS] ?? "#64748B";
 
-function Card({ item, onActivate, highlight }: { item: PlacedNode; onActivate: (node: OrganogramNode) => void; highlight: string | null }) {
-  const node = item.node;
-  const isMore = Boolean(node.moreOf);
-  const active = highlight === node.id;
+function CardView({ node, layout, onOpenEmployee }: { node: LNode; layout: OrgLayout; onOpenEmployee: (id: string | null) => void }) {
+  const orgNode = node.node as OrgNode;
+  const e = orgNode.emp;
+  const st = employeeStatus(e);
+  const color = levelColor(orgNode.level);
   return (
-    <div
-      id={`org-${node.id.replace(/[^a-zA-Z0-9_-]/g, "_")}`}
-      onClick={() => onActivate(node)}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onActivate(node);
-        }
+    <button
+      type="button"
+      onClick={() => onOpenEmployee(e.id)}
+      className="absolute overflow-hidden rounded-[5px] border text-left shadow-[0_1px_2px_rgba(15,23,42,0.18)] transition-transform hover:z-20 hover:-translate-y-0.5 hover:shadow-[0_8px_22px_rgba(6,43,91,0.25)]"
+      style={{
+        left: node.x,
+        top: node.y,
+        width: node.w,
+        height: node.h,
+        background: st.temporary ? "#FEF08A" : "#FFFFFF",
+        borderColor: st.vacant ? "#64748B" : node.inferred ? "#F59E0B" : "#94A3B8",
+        borderStyle: st.vacant || node.inferred ? "dashed" : "solid",
+        borderWidth: node.inferred ? 1.8 : 1.2,
       }}
-      className={cn(
-        "absolute flex cursor-pointer flex-col justify-center rounded-[3px] border bg-white px-2.5 py-1.5 text-center shadow-[0_1px_2px_rgba(0,0,0,0.16)] transition-transform hover:z-20 hover:-translate-y-0.5 hover:shadow-[0_6px_16px_rgba(6,43,91,0.22)]",
-        node.vacant ? "border-dashed border-slate-500 bg-white/85" : node.temporary ? "border-amber-500 bg-amber-200" : isMore ? "border-dashed border-sky-500 bg-sky-50" : "border-slate-700",
-        active && "z-20 ring-4 ring-amber-400/70"
-      )}
-      style={{ left: item.x - item.width / 2, top: item.y, width: item.width, height: CARD_H }}
     >
-      <p className={cn("truncate text-[10.5px] leading-tight font-bold", isMore ? "text-sky-700" : "text-slate-900", node.vacant && "italic")}>
-        {isMore && <Plus className="mr-0.5 inline h-3 w-3" />}
-        {node.title}
-      </p>
-      <p className="truncate text-[10px] leading-tight text-slate-700">
-        {node.name}
-        <span className="ml-1 rounded-full bg-slate-100 px-1 text-[8px] font-bold text-slate-500">{node.level}</span>
-      </p>
-      {node.reports > 0 && !isMore && (
-        <span className="absolute -top-2 -right-2 rounded-full border border-white bg-slate-700 px-1.5 text-[9px] leading-[15px] font-semibold text-white shadow">{node.reports}</span>
-      )}
+      <span className="absolute inset-x-0 top-0 h-1.5 rounded-t-[5px]" style={{ background: color }} />
+      <span className="absolute top-[15px] left-[8px] grid h-6 w-6 place-items-center rounded-full text-[8.5px] font-bold text-white" style={{ background: st.vacant ? "#64748B" : color }}>
+        {st.vacant ? "V" : initials(e.fullName, e.firstName, e.lastName)}
+      </span>
+      <span className="absolute top-[17px] left-[38px] right-2 truncate text-[10.5px] font-bold text-slate-900">{st.vacant ? "VACANT" : e.fullName}</span>
+      <span className="absolute top-[38px] right-2 left-[10px] line-clamp-2 text-[9px] leading-[12px] text-slate-700">{e.title}</span>
+      <span className="absolute bottom-[7px] left-[10px] rounded-[3px] px-1.5 py-0.5 text-[8px] font-bold text-white" style={{ background: color }}>
+        {displayLevel(orgNode.level)}
+      </span>
+      <span className="absolute bottom-[8px] left-[43px] right-2 truncate text-[8px] text-slate-500">{e.department}</span>
+      {st.temporary && <span className="absolute top-[8px] right-2 text-[8px] font-bold text-amber-900">TEMP</span>}
+    </button>
+  );
+}
+
+function GroupView({ node, onOpenEmployee }: { node: LNode; onOpenEmployee: (id: string | null) => void }) {
+  const members = node.members ?? [];
+  const color = levelColor(members[0]?.level ?? "L2");
+  const cols = members.length <= 8 ? 2 : members.length <= 24 ? 3 : 4;
+  const colW = (node.w - 12) / cols;
+  return (
+    <div className="absolute rounded-[5px] border bg-white shadow-[0_1px_2px_rgba(15,23,42,0.16)]" style={{ left: node.x, top: node.y, width: node.w, height: node.h, borderColor: color }}>
+      <div className="absolute inset-x-0 top-0 h-[30px] rounded-t-[5px] bg-slate-50" />
+      <span className="absolute top-[8px] left-[8px] rounded-[3px] px-1.5 py-0.5 text-[8px] font-bold text-white" style={{ background: color }}>
+        {displayLevel(members[0]?.level)}
+      </span>
+      <span className="absolute top-[10px] left-[40px] text-[8.5px] font-bold text-slate-900">{members.length} positions at this level</span>
+      <div className="absolute top-[36px] right-1.5 left-1.5">
+        <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
+          {members.map((m) => {
+            const st = employeeStatus(m.emp);
+            return (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => onOpenEmployee(m.emp.id)}
+                className="rounded-[3px] border px-1.5 py-1 text-left transition-colors hover:border-slate-400 hover:bg-white"
+                style={{ background: st.temporary ? "#FEF08A" : "#F8FAFC", borderColor: st.vacant ? "#64748B" : "#E2E8F0", borderStyle: st.vacant ? "dashed" : "solid" }}
+              >
+                <span className="block truncate text-[7.5px] font-bold text-slate-900">{st.vacant ? "VACANT" : m.emp.fullName}</span>
+                <span className="block truncate text-[6.8px] text-slate-500">{m.emp.title}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
 
 /**
- * ATOMA divisional organogram: vertical L6→L1 level rail, centred subtrees with
- * right-angle connectors (reports spread left/right of the reporting line), dotted
- * vacant posts, yellow temporary cards and expandable “+N more” groups.
+ * Interactive ATOMA landscape organogram: horizontal level rows with a level rail,
+ * roster cards for large teams, orthogonal bus connectors and the approved legend.
  */
-export function Organogram({ employees, context, scopeLabel, onOpenEmployee }: { employees: Employee[]; context?: Employee[]; scopeLabel: string; onOpenEmployee: (id: string | null) => void }) {
+export function Organogram({ layout, title, subtitle, generatedBy, onOpenEmployee }: { layout: OrgLayout; title: string; subtitle: string; generatedBy?: string; onOpenEmployee: (id: string | null) => void }) {
   const [zoom, setZoom] = useState(1);
-  const [highlight, setHighlight] = useState<string | null>(null);
-  const [caps, setCaps] = useState<Record<string, number>>({});
   const [busy, setBusy] = useState<string | null>(null);
-  const notify = useUIStore((state) => state.notify);
-  const session = useUIStore((state) => state.session);
-  const canvas = useRef<HTMLDivElement>(null);
+  const options: OrgExportOpts = useMemo(
+    () => ({ title, subtitle, generatedBy, footer: "Made with \u2665 by Mohibullah Afzalzada" }),
+    [title, subtitle, generatedBy]
+  );
+  const counts = useMemo(
+    () => ({
+      people: layout.nodes.reduce((a, n) => a + (n.kind === "group" ? n.members?.length ?? 0 : 1), 0),
+      groups: layout.nodes.filter((n) => n.kind === "group").length,
+      inferred: layout.edges.filter((e) => e.inferred).length,
+    }),
+    [layout]
+  );
 
-  const tree = useMemo(() => buildDivisionOrganogram(context ?? employees, employees), [employees, context]);
-  const display = useMemo(() => (tree ? toDisplayTree(tree, caps) : null), [tree, caps]);
-  const layout = useMemo(() => layoutOrganogram(display?.tree ?? null), [display]);
-
-  const meta: OrganogramExportMeta = {
-    title: `Organization Chart · ${scopeLabel}`,
-    scope: `${fmtNum(employees.length)} employees · L6 → L1 hierarchy · ATOMA`,
-    generatedBy: `${session.name}`,
-  };
-
-  if (!tree || !display) return <div className="grid h-72 place-items-center text-sm text-muted">No employees in this scope.</div>;
-
-  const activate = (node: OrganogramNode) => {
-    if (node.moreOf) {
-      setCaps((current) => ({ ...current, [node.moreOf as string]: (current[node.moreOf as string] ?? DEFAULT_CHILD_CAP) + 12 }));
-      return;
-    }
-    setHighlight(node.id);
-    onOpenEmployee(node.employeeId ?? null);
-  };
-
-  const run = async (kind: "pdf" | "svg" | "png" | "print" | "visio") => {
+  const run = async (kind: "pdf" | "svg" | "visio" | "print") => {
     setBusy(kind);
     try {
-      const stamp = `${slugify(scopeLabel)}-${timestampSlug()}`;
-      if (kind === "visio") {
-        await exportOrganogramVisio(layout, meta, `org-chart-${stamp}.vdx`);
-        notify("success", "Visio file downloaded", "Open the .vdx in Microsoft Visio to edit every box and line, then save as .vsd/.vsdx.");
-      } else if (kind === "svg") {
-        downloadBlob(new Blob([buildOrganogramSVG(layout, meta)], { type: "image/svg+xml;charset=utf-8" }), `org-chart-${stamp}.svg`);
-        notify("success", "SVG exported", "Fully editable vector — opens in Illustrator, Visio, draw.io or Office.");
-      } else if (kind === "pdf") {
-        await exportOrganogramPDF(layout, meta, `org-chart-${stamp}.pdf`);
-        notify("success", "PDF exported", "Single-page vector PDF — zoom without quality loss and edit in PDF tools.");
-      } else if (kind === "png") {
-        const element = canvas.current;
-        if (!element) return;
-        const shot = await captureElement(element, "#FFFFFF", 2.4);
-        downloadDataUrl(shot.toDataURL("image/png"), `org-chart-${stamp}.png`);
-        notify("success", "PNG exported", "High-resolution raster image.");
-      } else {
-        printOrganogram(layout, meta);
-      }
+      if (kind === "svg") downloadOrgSvg(layout, options);
+      else if (kind === "pdf") await downloadOrgVectorPdf(layout, options);
+      else if (kind === "visio") await downloadOrgVisio(layout, options);
+      else printOrgSvg(layout, options);
     } catch (error) {
-      notify("error", "Export failed", error instanceof Error ? error.message : undefined);
+      console.error("[atoma] organogram export", error);
     } finally {
       setBusy(null);
     }
@@ -119,61 +121,98 @@ export function Organogram({ employees, context, scopeLabel, onOpenEmployee }: {
   return (
     <div className="relative">
       <div className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-2 text-[11px] text-muted" data-no-capture="true">
-        <span className="font-semibold text-fg">{scopeLabel}</span>
-        <Badge tone="primary">{fmtNum(employees.length)} employees</Badge>
-        <Badge tone="primary">{layout.bands.length} level bands</Badge>
-        {layout.vacantCount > 0 && <Badge tone="warning">Dotted = {layout.vacantCount} vacant</Badge>}
-        {layout.temporaryCount > 0 && <Badge tone="warning">Yellow = {layout.temporaryCount} temporary</Badge>}
-        {display.hiddenCount > 0 && <Badge tone="accent">{fmtNum(display.hiddenCount)} in “+N more” groups</Badge>}
-        <span className="ml-auto flex flex-wrap items-center gap-1">
-          <IconButton label="Zoom out" onClick={() => setZoom((z) => Math.max(0.35, +(z - 0.1).toFixed(2)))}><ZoomOut /></IconButton>
+        <span className="font-semibold text-fg">{title}</span>
+        <Badge tone="primary">{fmtNum(counts.people)} people</Badge>
+        <Badge tone="primary">{layout.layers.length} level rows</Badge>
+        {counts.groups > 0 && <Badge tone="accent">{counts.groups} roster cards</Badge>}
+        {counts.inferred > 0 && <Badge tone="warning">{counts.inferred} inferred lines</Badge>}
+        <span className="ml-auto flex items-center gap-1">
+          <IconButton label="Zoom out" onClick={() => setZoom((z) => Math.max(0.35, +(z - 0.1).toFixed(2)))}>
+            <ZoomOut />
+          </IconButton>
           <span className="w-10 text-center font-semibold text-fg tabular-nums">{Math.round(zoom * 100)}%</span>
-          <IconButton label="Zoom in" onClick={() => setZoom((z) => Math.min(1.8, +(z + 0.1).toFixed(2)))}><ZoomIn /></IconButton>
+          <IconButton label="Zoom in" onClick={() => setZoom((z) => Math.min(1.8, +(z + 0.1).toFixed(2)))}>
+            <ZoomIn />
+          </IconButton>
           <span className="mx-1 h-5 w-px bg-line" />
-          <IconButton label="Export single-page vector PDF" onClick={() => void run("pdf")} disabled={busy !== null}>{busy === "pdf" ? <Spinner /> : <FileDown />}</IconButton>
-          <IconButton label="Export editable SVG" onClick={() => void run("svg")} disabled={busy !== null}>{busy === "svg" ? <Spinner /> : <FileType2 />}</IconButton>
-          <IconButton label="Export high-resolution PNG" onClick={() => void run("png")} disabled={busy !== null}>{busy === "png" ? <Spinner /> : <ImageIcon />}</IconButton>
-          <IconButton label="Download editable Visio drawing (.vdx)" onClick={() => void run("visio")} disabled={busy !== null}>{busy === "visio" ? <Spinner /> : <FileText />}</IconButton>
-          <IconButton label="Print one page" onClick={() => void run("print")} disabled={busy !== null}><Printer /></IconButton>
+          <IconButton label="Single-page editable vector PDF" onClick={() => void run("pdf")} disabled={busy !== null}>
+            {busy === "pdf" ? <Spinner /> : <FileDown />}
+          </IconButton>
+          <IconButton label="Editable SVG" onClick={() => void run("svg")} disabled={busy !== null}>
+            <Download />
+          </IconButton>
+          <IconButton label="Editable Microsoft Visio drawing" onClick={() => void run("visio")} disabled={busy !== null}>
+            {busy === "visio" ? <Spinner /> : <FileText />}
+          </IconButton>
+          <IconButton label="Print one page" onClick={() => void run("print")} disabled={busy !== null}>
+            <Printer />
+          </IconButton>
         </span>
       </div>
 
-      <div ref={canvas} className="relative max-h-[72vh] overflow-auto bg-[repeating-linear-gradient(0deg,transparent,transparent_27px,rgba(6,43,91,0.035)_28px)]" data-export-expand="true">
+      <div className="relative max-h-[74vh] overflow-auto bg-[repeating-linear-gradient(0deg,transparent,transparent_27px,rgba(6,43,91,0.035)_28px)]" data-export-expand="true">
         <div className="relative origin-top-left" style={{ width: layout.width, height: layout.height, transform: `scale(${zoom})`, transformOrigin: "top left" }}>
-          <div className="absolute top-0 left-0 border-r border-slate-300 bg-slate-50" style={{ width: RAIL_W, height: layout.height }}>
-            {layout.bands.map((band) => (
-              <div key={band.level} className="absolute flex flex-col items-center justify-center border-b-2 border-amber-500" style={{ top: band.y, height: band.height, width: RAIL_W }}>
-                <span className="text-[15px] leading-none font-extrabold text-slate-800">{band.level}</span>
-                <span className="mt-1 text-[8.5px] leading-tight text-slate-500 uppercase">{band.label}</span>
-                <span className="mt-1 rounded-full px-1.5 text-[8.5px] font-semibold text-white" style={{ background: LEVEL_FILL[band.level] ?? "#64748B" }}>{band.count}</span>
+          {layout.layers.map((layer: LayerInfo) => (
+            <div
+              key={`${layer.level}-${layer.index}`}
+              className={layer.index % 2 ? "absolute" : "absolute"}
+              style={{ left: 0, top: Math.max(0, layer.offset - layout.gapMain / 2), width: layout.width, height: layer.size + layout.gapMain, background: layer.index % 2 ? "#F8FAFC" : "#FFFFFF" }}
+            >
+              <div className="absolute top-0 left-3 h-full bg-amber-200/80" style={{ width: 48 }} />
+              {layer.index > 0 && <div className="absolute top-0 right-3 left-3 h-[2px] bg-amber-500" />}
+              <div className="absolute top-1/2 left-3 flex w-12 -translate-y-1/2 flex-col items-center">
+                <span className="text-[13px] leading-none font-extrabold text-slate-900">
+                  {displayLevel(layer.level)}
+                  {layer.continuation ? " cont." : ""}
+                </span>
+                <span className="mt-0.5 text-[8px] text-slate-600">{layer.count}</span>
               </div>
-            ))}
-          </div>
-
-          {layout.bands.map((band) => (
-            <div key={`sep-${band.level}`} className="absolute right-0 left-0 h-[2px] bg-amber-500/85" style={{ top: band.y + band.height - 1, marginLeft: RAIL_W }} />
+              <span className="absolute top-2.5 left-[70px] text-[8px] font-bold tracking-wide text-slate-500 uppercase">{layer.band}</span>
+            </div>
           ))}
 
           <svg className="pointer-events-none absolute inset-0" width={layout.width} height={layout.height} aria-hidden>
-            {layout.edges.map((edge, index) => (
-              <path key={index} d={edge.d} fill="none" stroke="#334155" strokeWidth={1.6} strokeLinejoin="round" strokeLinecap="round" />
+            {layout.edges.map((edge) => (
+              <path
+                key={edge.id}
+                d={edge.d}
+                fill="none"
+                stroke={edge.inferred ? "#F59E0B" : "#1F2937"}
+                strokeWidth={edge.inferred ? 1.6 : 1.25}
+                strokeDasharray={edge.inferred ? "5 4" : edge.kind === "staff" ? "4 3" : undefined}
+                strokeLinejoin="round"
+                strokeLinecap="round"
+              />
             ))}
           </svg>
 
-          {layout.nodes.map((item) => (
-            <Card key={item.node.id} item={item} onActivate={activate} highlight={highlight} />
-          ))}
+          {layout.nodes.map((node) => (node.kind === "group" ? <GroupView key={node.id} node={node} onOpenEmployee={onOpenEmployee} /> : <CardView key={node.id} node={node} layout={layout} onOpenEmployee={onOpenEmployee} />))}
         </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-3 border-t border-line px-3 py-2 text-[10.5px] text-muted">
-        <span className="inline-flex items-center gap-1.5"><span className="h-3 w-5 rounded-[2px] border border-slate-700 bg-white" /> Filled post</span>
-        <span className="inline-flex items-center gap-1.5"><span className="h-3 w-5 rounded-[2px] border border-dashed border-slate-500 bg-white" /> Vacant post</span>
-        <span className="inline-flex items-center gap-1.5"><span className="h-3 w-5 rounded-[2px] border border-amber-500 bg-amber-200" /> Temporary / contract</span>
-        <span className="inline-flex items-center gap-1.5"><span className="h-3 w-5 rounded-[2px] border border-dashed border-sky-500 bg-sky-50" /> Click to expand</span>
-        <span className="inline-flex items-center gap-1.5"><span className="h-3 w-5 rounded-[2px] border-b-2 border-amber-500 bg-slate-100" /> Level band</span>
-        <span className="ml-auto">Reports sit centred under their manager (left / right of the reporting line)</span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="h-3 w-5 rounded-[2px] border border-slate-400 bg-white" /> Filled post
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="h-3 w-5 rounded-[2px] border border-dashed border-slate-500 bg-white" /> Vacant post
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="h-3 w-5 rounded-[2px] border border-amber-500 bg-amber-200" /> Temporary / contract
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <svg width="22" height="12" aria-hidden>
+            <line x1="1" y1="6" x2="21" y2="6" stroke="#F59E0B" strokeWidth="1.5" strokeDasharray="5 4" />
+          </svg>
+          Inferred line
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="h-3 w-5 rounded-[2px] bg-amber-200" /> Level band
+        </span>
+        <span className="ml-auto">Made with <span className="text-rose-500">♥</span> by <span className="font-semibold text-fg">Mohibullah Afzalzada</span></span>
       </div>
     </div>
   );
 }
+
+export { LEVEL_ORDER, slugify, timestampSlug };

@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@e965/xlsx": "^0.20.3",
+    "@klyratech/mermaid-to-visio": "^0.1.0",
     "@tanstack/react-virtual": "^3.14.13",
     "@types/papaparse": "^5.5.2",
     "dotenv": "17.3.1",

@@ -33,7 +33,7 @@ This file is a concise handoff for future maintainers and AI coding sessions. Re
 9. **Remarks-derived HR signals.** Turnover/promotion are inferred only because the source schema lacks authoritative events. Replace when fields become available.
 10. **Exports respect security scope and filters.** View snapshots reflect hidden widgets; structured workbook contains all approved filtered columns.
 11. **Capture is full-scroll/high-DPI.** Do not replace the readiness/safe-scale/PNG-slice pipeline with a simple viewport JPEG capture.
-12. **Org hierarchy is line-manager-first; levels are labels.** Rail order L6 → L5 → L4 → L3H → L3 → L2 → L1, but an L2 employee may report straight to an L5 manager and is drawn that way. Layout copies the approved Visio sheet: head centred on the sheet, every manager centred over their team span, reports split left/right (middle on the axis for odd counts), 5+ report teams stacked in columns of 3 with spine/stub connectors, staff officers (Secretary/Assistant) laterally beside their manager, and level bands that grow taller where dense. Department sheets keep the division head on top. Leaders score scope-root + subtree + band + GM/DGM/C-suite title + scope name in title; supervisor names match fuzzy (Mamoozai ≈ Mamozai). Exports are vector (single-page PDF A4→A0, editable SVG, PNG, print) with the ATOMA chevron mark and printed legend.
+12. **Org chart = `organogram.ts` facade → `orgtree.ts` + `orglayout.ts` + `orgexport/organogram-levels`.** Never rename these modules without keeping `organogram.ts` as the public entry. Landscape rows (top level present starts the chart), bus connectors between bands, roster cards for 5+ leaf reports, centre aisles for even branch sets, lateral staff officers, and dashed “inferred” links. Reporting resolution: override → e-mail → employee number → exact name → fuzzy name → department/division/top; division heads are scored (C-suite/Head/GM, level, reports outside the division, division-keyword titles, span, named reports) with per-division manual overrides persisted in `atoma:org-overrides`. The old vertical cluster engine (`organogram.ts`) was removed. Layout copies the approved Visio sheet: head centred on the sheet, every manager centred over their team span, reports split left/right (middle on the axis for odd counts), 5+ report teams stacked in columns of 3 with spine/stub connectors, staff officers (Secretary/Assistant) laterally beside their manager, and level bands that grow taller where dense. Department sheets keep the division head on top. Leaders score scope-root + subtree + band + GM/DGM/C-suite title + scope name in title; supervisor names match fuzzy (Mamoozai ≈ Mamozai). Exports are vector (single-page PDF A4→A0, editable SVG, PNG, print) with the ATOMA chevron mark and printed legend.
 
 ## Dashboard personalization IDs
 
@@ -63,6 +63,13 @@ This file is a concise handoff for future maintainers and AI coding sessions. Re
 Do not rename IDs without migrating `atoma-ui.hiddenWidgets` preferences.
 
 ## Afghanistan map facts
+
+- The map has two filters: **Duty station (default)** and **Home province**; it never defaults to Kabul as a province selection.
+- Duty-station shading uses the province hosting the station; employees keep their own home province.
+
+## Client-render pitfalls
+
+- Never read `localStorage`/IndexedDB during the first render of a dashboard: the server renders a different tree and React throws a hydration error that blanks the module. Load persisted state in an effect (requestAnimationFrame wrapper keeps ESLint happy).
 
 - Canonical count: 34.
 - Boundary: `public/geo/afghanistan.json`.
