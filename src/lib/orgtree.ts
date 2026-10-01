@@ -241,7 +241,13 @@ export interface OrgOverrides {
 
 export function loadOrgOverrides(): OrgOverrides {
   try {
-    return JSON.parse(localStorage.getItem("atoma:org-overrides") || "{}") as OrgOverrides;
+       const raw = localStorage.getItem("atoma:org-overrides");
+    if (!raw) return { heads: {}, reporting: {} };
+    const parsed = JSON.parse(raw) as Partial<OrgOverrides> | null;
+    return {
+      heads: parsed?.heads ?? {},
+      reporting: parsed?.reporting ?? {},
+    };
   } catch {
     return { heads: {}, reporting: {} };
   }
