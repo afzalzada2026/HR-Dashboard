@@ -145,6 +145,17 @@ function candidateScores(nodes: OrgNode[], top: OrgNode | null, division: string
   const maxSen = Math.max(1, ...inDiv.map((n) => n.sen));
   return inDiv
     .map((n): DivisionHeadCandidate => {
+            // 🌟 VIBE FIX: If this node is the absolute top boss, skip evaluating them here
+      if (top && n.id === top.id) {
+        return {
+          key: employeeOrgKey(n.emp),
+          employee: n.emp,
+          score: -1000,
+          reasons: ["Organization head position"],
+          selected: false,
+          manual: false
+        };
+      }
       const title = n.emp.title || "";
       const key = employeeOrgKey(n.emp);
       const refs = [refCounts.get(normEmail(n.emp.email)), refCounts.get(normName(n.emp.fullName))].filter(Boolean) as { total: number; departments: Set<string> }[];
@@ -355,6 +366,10 @@ export function buildOrgTree(data: Employee[], overrides: OrgOverrides = { heads
     headCandidates.set(division, ranked.slice(0, 12));
     const selected = ranked[0];
     if (!selected) continue;
+    
+    // 🌟 VIBE FIX: If the top choice for division head is actually the global CEO, skip it
+    if (top && selected.key === employeeOrgKey(top.emp)) continue;
+
     const head = nodes.find((n) => employeeOrgKey(n.emp) === selected.key && n.emp.division === division);
     if (!head) continue;
     divisionHeads.set(division, head);
