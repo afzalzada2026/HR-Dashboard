@@ -73,7 +73,11 @@ Legend: `[x]` complete, `[ ]` backlog, `[!]` production dependency/decision.
 - [x] Visio-style balance: head on the centre line, each manager centred over their team, reports split left/right.
 - [x] Lateral staff officers (Secretary/Assistant) beside their manager.
 - [x] Team clusters: 5+ reports stack in columns of 3 with spine/stub connectors; smaller teams in a centred row.
-- [x] Editable Microsoft Visio drawing export (.vdx) with real Visio shapes.
+- [x] Editable Microsoft Visio export (.vsdx with .vdx XML fallback).
+- [x] Landscape organogram engine: horizontal level rows, dominant-level labels with “cont.” rows, roster cards, centre aisles, bus connectors.
+- [x] Reporting engine with link provenance (override/email/number/name/fuzzy/inferred), cycle repair and quality reporting.
+- [x] Scored division-head candidates with reasons and per-division manual override.
+- [x] SVG/PDF/print exports in the approved style (inferred-line legend + author credit).
 - [x] Dashboard PDF: blue ATOMA band on page one only.
 - [x] Page-level ErrorBoundary and chart option isolation so no widget can blank the page.
 - [x] Footer credit: “Made with ♥ by Mohibullah Afzalzada”.

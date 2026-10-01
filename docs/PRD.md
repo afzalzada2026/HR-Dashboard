@@ -128,7 +128,12 @@ Chart clicks cross-filter the entire application. Charts support table mode, foc
 - Fixed ATOMA top-to-bottom bands: L6 → L5 → L4 → L3H → L3 → L2 → L1.
 - Selecting a division renders the approved HR-style organogram: level rail on the left, orange band separators, centred subtrees and right-angle connectors; Department further scopes the chart.
 - Vacant leadership posts appear as dotted cards with “(Vacant)”; temporary/contract staff appear on yellow cards.
-- Reporting lines follow each employee’s line manager directly, regardless of level (an L2 employee reporting to an L5 manager is drawn that way).
+- Landscape organogram style (per the approved ATOMA design): levels are horizontal rows with an amber level rail, branches spread left-to-right, and orthogonal bus connectors run between bands without crossing cards.
+- Rows are labelled by the dominant actual level and support “cont.” continuation rows, so a scope led at L5 starts at L5 and skipped/repeated levels still label correctly.
+- Leaf teams of five or more collapse into roster cards (2/3/4 columns) listing every person; smaller teams stay as individual cards.
+- Even sets of four or more branches reserve a centre aisle, so a team of four sits two left and two right of the reporting line.
+- Reporting lines follow each employee’s line manager directly, regardless of level (an L2 employee reporting to an L5 manager is drawn that way); unresolved lines are drawn as dashed amber “inferred” links and surfaced for review.
+- Division heads are resolved by a scored candidate engine (C-suite/Head/GM titles, level, reporting outside the division, division-keyword titles, span and named reports) and can be overridden per division by an HR Admin.
 - Reports sit in a centred row under their manager — four reports split two left and two right of the reporting line.
 - Level bands are flexible: a busy band (typically L2/L1) wraps into several rows and grows taller, so charts stay print-friendly instead of stretching into one endless line.
 - Divisions above 80 people render one sheet per department, each topped by the division head/director and containing all staff of that department.

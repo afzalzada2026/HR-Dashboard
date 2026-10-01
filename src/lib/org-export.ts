@@ -1,407 +1,450 @@
-import { ATOMA_ACCENT, ATOMA_BLUE, ATOMA_MARK_PATHS, ATOMA_NAVY } from "./brand";
+import { ATOMA_MARK_PATHS } from "./brand";
 import { downloadBlob } from "./format";
-import { CARD_H, CARD_W, type OrganogramLayout, RAIL_W } from "./organogram";
+import { LEVEL_ORDER, type OrgLevelCode } from "./organogram-levels";
+import { groupCardGrid, type LayerInfo, type LNode, type OrgLayout } from "./orglayout";
+import { employeeStatus, type OrgNode } from "./orgtree";
+import type { Employee } from "./types";
 
-export interface OrganogramExportMeta {
+export interface OrgExportOpts {
   title: string;
-  scope: string;
-  generatedBy: string;
-  background?: string;
+  subtitle: string;
+  generatedBy?: string;
+  footer?: string;
 }
 
-const HEADER_H = 86;
-const LEGEND_H = 54;
-const FOOTER_H = 22;
-const PAD = 26;
+export const LEVEL_COLORS: Record<OrgLevelCode, string> = {
+  L6: "#062B5B",
+  L5: "#0D47A1",
+  L4: "#1E6FE0",
+  L3H: "#F59E0B",
+  L3: "#00A8FF",
+  L2: "#64748B",
+  L1: "#94A3B8",
+};
 
-const INK = "#0F172A";
-const MUTED = "#64748B";
-const RAIL_BG = "#F1F5F9";
-const AMBER = "#F59E0B";
-const AMBER_FILL = "#FDE68A";
-const LINE = "#334155";
+const esc = (s: unknown) =>
+  String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 
-function clip(text: string, max = 32): string {
-  const clean = text.replace(/\s+/g, " ").trim();
-  return clean.length > max ? `${clean.slice(0, max - 1)}…` : clean;
+const stamp = () => {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
+};
+
+const displayLevel = (s?: string) => (s || "—").replace(/^L/i, "");
+const initials = (e: Employee) => `${e.firstName?.[0] ?? e.fullName?.[0] ?? ""}${e.lastName?.[0] ?? ""}`.toUpperCase();
+const levelColor = (level?: OrgLevelCode) => LEVEL_COLORS[(level ?? "L2") as OrgLevelCode] ?? "#64748B";
+
+function wrap(text: string, max = 28, lines = 2): string[] {
+  const words = (text || "").split(/\s+/).filter(Boolean);
+  const out: string[] = [];
+  let line = "";
+  for (const word of words) {
+    if (`${line} ${word}`.trim().length > max && line) {
+      out.push(line);
+      line = word;
+      if (out.length === lines - 1) break;
+    } else line = `${line} ${word}`.trim();
+  }
+  if (line && out.length < lines) out.push(line);
+  const used = out.join(" ").split(/\s+/).length;
+  if (used < words.length && out.length) out[out.length - 1] = `${out[out.length - 1].replace(/…$/, "")}…`;
+  return out;
 }
 
-function escapeXml(value: string): string {
-  return value.replace(/[<>&"']/g, (char) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&apos;" })[char] ?? char);
+function nodeSvg(n: LNode, layout: OrgLayout): string {
+  const node = n.node as OrgNode;
+  const e = node.emp;
+  const st = employeeStatus(e);
+  const color = levelColor(node.level);
+  const fill = st.temporary ? "#FEF08A" : "#FFFFFF";
+  const dash = st.vacant || n.inferred ? ` stroke-dasharray="5 4"` : "";
+  const stroke = st.vacant ? "#64748B" : n.inferred ? "#F59E0B" : "#94A3B8";
+  const name = st.vacant ? "VACANT" : e.fullName;
+  const title = wrap(e.title, Math.max(18, Math.floor(n.w / 7.2)), 2);
+  const info = layout.layers[n.layer];
+  return `<g data-employee="${esc(e.employeeNo)}" style="cursor:pointer">
+    <rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="5" fill="${fill}" stroke="${stroke}" stroke-width="${n.inferred ? 1.8 : 1.2}"${dash}/>
+    <rect x="${n.x}" y="${n.y}" width="${n.w}" height="6" rx="5" fill="${color}"/>
+    <circle cx="${n.x + 20}" cy="${n.y + 27}" r="12" fill="${st.vacant ? "#64748B" : color}"/>
+    <text x="${n.x + 20}" y="${n.y + 31}" text-anchor="middle" font-size="8.5" font-weight="700" fill="#fff">${st.vacant ? "V" : esc(initials(e))}</text>
+    <text x="${n.x + 38}" y="${n.y + 31}" font-size="10.5" font-weight="700" fill="#0F172A">${esc(name).slice(0, 22)}</text>
+    ${title.map((t, i) => `<text x="${n.x + 10}" y="${n.y + 48 + i * 12}" font-size="9" fill="#334155">${esc(t)}</text>`).join("")}
+    <rect x="${n.x + 10}" y="${n.y + n.h - 21}" width="28" height="14" rx="3" fill="${color}"/>
+    <text x="${n.x + 24}" y="${n.y + n.h - 11}" text-anchor="middle" font-size="8" font-weight="700" fill="#fff">${esc(displayLevel(info?.level))}</text>
+    <text x="${n.x + 43}" y="${n.y + n.h - 11}" font-size="8" fill="#64748B">${esc(e.department).slice(0, 24)}</text>
+    ${st.temporary ? `<text x="${n.x + n.w - 8}" y="${n.y + 16}" text-anchor="end" font-size="8" font-weight="700" fill="#92400E">TEMP</text>` : ""}
+  </g>`;
 }
 
-function contentSize(layout: OrganogramLayout) {
-  return { width: layout.width + PAD * 2, height: HEADER_H + layout.height + LEGEND_H + FOOTER_H };
-}
-
-/** Editable SVG organogram: one page, true vector, opens in Illustrator / Visio / draw.io / Office. */
-export function buildOrganogramSVG(layout: OrganogramLayout, meta: OrganogramExportMeta): string {
-  const { width, height } = contentSize(layout);
-  const offsetX = PAD;
-  const offsetY = HEADER_H;
-  const parts: string[] = [];
-  parts.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${Math.round(width)}" height="${Math.round(height)}" viewBox="0 0 ${Math.round(width)} ${Math.round(height)}" font-family="Segoe UI, Arial, sans-serif">`);
-  parts.push(`<rect width="${Math.round(width)}" height="${Math.round(height)}" fill="${meta.background ?? "#FFFFFF"}"/>`);
-  parts.push(`<defs><linearGradient id="hdr" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${ATOMA_NAVY}"/><stop offset="0.65" stop-color="${ATOMA_BLUE}"/><stop offset="1" stop-color="${ATOMA_ACCENT}"/></linearGradient></defs>`);
-  parts.push(`<rect width="${Math.round(width)}" height="${HEADER_H - 10}" fill="url(#hdr)"/>`);
-  parts.push(`<rect y="${HEADER_H - 10}" width="${Math.round(width)}" height="3" fill="${ATOMA_ACCENT}"/>`);
-  // ATOMA mark
-  parts.push(`<g transform="translate(${PAD}, 12) scale(0.92)" fill="none" stroke-width="11" stroke-linecap="round" stroke-linejoin="round">`);
-  for (const path of ATOMA_MARK_PATHS) parts.push(`<path d="${path.d}" stroke="${path.stroke}" opacity="${path.opacity}"/>`);
-  parts.push("</g>");
-  parts.push(`<text x="${PAD + 62}" y="34" fill="#FFFFFF" font-size="16" font-weight="700" letter-spacing="3">ATOMA</text>`);
-  parts.push(`<text x="${PAD + 62}" y="52" fill="#FFFFFF" font-size="12.5" font-weight="600">${escapeXml(meta.title)}</text>`);
-  parts.push(`<text x="${PAD + 62}" y="68" fill="rgba(255,255,255,0.82)" font-size="10">${escapeXml(meta.scope)}</text>`);
-  parts.push(`<text x="${Math.round(width) - PAD}" y="32" fill="rgba(255,255,255,0.88)" font-size="10" text-anchor="end">${escapeXml(new Date().toLocaleString())}</text>`);
-  parts.push(`<text x="${Math.round(width) - PAD}" y="50" fill="rgba(255,255,255,0.88)" font-size="10" text-anchor="end">Prepared by ${escapeXml(meta.generatedBy)}</text>`);
-  parts.push(`<text x="${Math.round(width) - PAD}" y="68" fill="rgba(255,255,255,0.88)" font-size="10" text-anchor="end">Levels L6 → L1 · vector · single page</text>`);
-
-  for (const band of layout.bands) {
-    parts.push(`<rect x="${offsetX}" y="${offsetY + band.y}" width="${RAIL_W}" height="${band.height}" fill="${RAIL_BG}" stroke="#CBD5E1" stroke-width="1"/>`);
-    parts.push(`<text x="${offsetX + RAIL_W / 2}" y="${offsetY + band.y + band.height / 2 - 3}" text-anchor="middle" font-size="14" font-weight="700" fill="${INK}">${band.level}</text>`);
-    parts.push(`<text x="${offsetX + RAIL_W / 2}" y="${offsetY + band.y + band.height / 2 + 11}" text-anchor="middle" font-size="7.5" fill="${MUTED}">${escapeXml(band.label)}</text>`);
-    parts.push(`<line x1="${offsetX}" y1="${offsetY + band.y + band.height - 1}" x2="${Math.round(width) - PAD}" y2="${offsetY + band.y + band.height - 1}" stroke="${AMBER}" stroke-width="2"/>`);
-  }
-
-  for (const edge of layout.edges) {
-    const points = edge.points.map(([x, y]) => `${x + offsetX},${y + offsetY}`).join(" ");
-    parts.push(`<polyline points="${points}" fill="none" stroke="${LINE}" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"/>`);
-  }
-
-  for (const item of layout.nodes) {
-    const node = item.node;
-    const x = item.x - CARD_W / 2 + offsetX;
-    const y = item.y + offsetY;
-    const fill = node.vacant ? "#FFFFFF" : node.temporary ? AMBER_FILL : "#FFFFFF";
-    const stroke = node.vacant ? "#64748B" : node.temporary ? AMBER : "#334155";
-    parts.push(`<rect x="${x}" y="${y}" width="${CARD_W}" height="${CARD_H}" rx="3" fill="${fill}" stroke="${stroke}" stroke-width="1.2"${node.vacant || node.moreOf ? ' stroke-dasharray="5 3"' : ""}/>`);
-    parts.push(`<text x="${x + CARD_W / 2}" y="${y + 21}" text-anchor="middle" font-size="10.5" font-weight="700" fill="${INK}">${escapeXml(clip(node.title))}</text>`);
-    parts.push(`<text x="${x + CARD_W / 2}" y="${y + 37}" text-anchor="middle" font-size="10" fill="#334155">${escapeXml(clip(node.name))}</text>`);
-    if (node.reports > 0 && !node.moreOf) parts.push(`<text x="${x + CARD_W / 2}" y="${y + 50}" text-anchor="middle" font-size="8" fill="${MUTED}">${node.reports} direct reports</text>`);
-    parts.push(`<text x="${x + CARD_W - 6}" y="${y + 12}" text-anchor="end" font-size="7.5" font-weight="700" fill="${MUTED}">${node.level}</text>`);
-  }
-
-  // Printed legend (always present on the export/print sheet).
-  const legendY = HEADER_H + layout.height + 18;
-  parts.push(`<line x1="${PAD}" y1="${legendY - 12}" x2="${Math.round(width) - PAD}" y2="${legendY - 12}" stroke="#E2E8F0" stroke-width="1"/>`);
-  const legend: [string, string, string, boolean][] = [
-    ["Filled post", "#FFFFFF", "#334155", false],
-    ["Vacant post", "#FFFFFF", "#64748B", true],
-    ["Temporary / contract", AMBER_FILL, AMBER, false],
-    ["Level band", RAIL_BG, AMBER, false],
-  ];
-  let legendX = PAD;
-  for (const [label, fill, stroke, dashed] of legend) {
-    parts.push(`<rect x="${legendX}" y="${legendY}" width="30" height="16" rx="2" fill="${fill}" stroke="${stroke}" stroke-width="1.2"${dashed ? ' stroke-dasharray="4 2"' : ""}/>`);
-    if (label === "Level band") parts.push(`<line x1="${legendX}" y1="${legendY + 15}" x2="${legendX + 30}" y2="${legendY + 15}" stroke="${AMBER}" stroke-width="2"/>`);
-    parts.push(`<text x="${legendX + 38}" y="${legendY + 12}" font-size="10" fill="#334155">${label}</text>`);
-    legendX += 38 + label.length * 6.2 + 28;
-  }
-  parts.push(`<text x="${PAD}" y="${height - 8}" font-size="9" fill="${MUTED}">ATOMA · Organization chart · reporting lines follow each employee’s line manager · generated ${escapeXml(new Date().toLocaleString())}</text>`);
-  parts.push("</svg>");
-  return parts.join("");
-}
-
-const PAGE_SIZES: [number, number][] = [
-  [841.89, 595.28], // A4 landscape
-  [1190.55, 841.89], // A3
-  [1683.78, 1190.55], // A2
-  [2383.94, 1683.78], // A1
-  [3370.39, 2383.94], // A0
-];
-
-/** Single-page vector PDF (no rasterisation): chooses A4→A0 so the chart stays legible and editable. */
-export async function exportOrganogramPDF(layout: OrganogramLayout, meta: OrganogramExportMeta, fileName: string): Promise<void> {
-  const { jsPDF } = await import("jspdf");
-  const content = contentSize(layout);
-  const margin = 24;
-  let page = PAGE_SIZES[PAGE_SIZES.length - 1];
-  for (const size of PAGE_SIZES) {
-    const scale = Math.min((size[0] - margin * 2) / content.width, (size[1] - margin * 2) / content.height);
-    if (scale >= 0.55) {
-      page = size;
-      break;
-    }
-  }
-  const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: page });
-  const scale = Math.min((page[0] - margin * 2) / content.width, (page[1] - margin * 2) / content.height);
-  const originX = (page[0] - content.width * scale) / 2;
-  const originY = (page[1] - content.height * scale) / 2;
-  const mapX = (x: number) => originX + x * scale;
-  const mapY = (y: number) => originY + y * scale;
-
-  doc.setFillColor(6, 43, 91);
-  doc.rect(mapX(0), mapY(0), content.width * scale, (HEADER_H - 10) * scale, "F");
-  doc.setFillColor(0, 168, 255);
-  doc.rect(mapX(0), mapY(HEADER_H - 10), content.width * scale, 3 * scale, "F");
-
-  // ATOMA mark (three chevrons)
-  doc.setLineCap("round");
-  doc.setLineJoin("round");
-  doc.setLineWidth(Math.max(1, 11 * scale));
-  for (const path of ATOMA_MARK_PATHS) {
-    const rgb = [parseInt(path.stroke.slice(1, 3), 16), parseInt(path.stroke.slice(3, 5), 16), parseInt(path.stroke.slice(5, 7), 16)] as [number, number, number];
-    doc.setDrawColor(rgb[0], rgb[1], rgb[2]);
-    const pairs = path.d.match(/-?\d+(\.\d+)?/g)?.map(Number) ?? [];
-    for (let index = 2; index + 1 < pairs.length; index += 2) {
-      doc.line(mapX(PAD + pairs[index - 2] * 0.92), mapY(12 + pairs[index - 1] * 0.92), mapX(PAD + pairs[index] * 0.92), mapY(12 + pairs[index + 1] * 0.92));
-    }
-  }
-
-  doc.setTextColor(255, 255, 255);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(Math.max(7, 16 * scale));
-  doc.text("ATOMA", mapX(PAD + 62), mapY(34));
-  doc.setFontSize(Math.max(6, 12.5 * scale));
-  doc.text(meta.title, mapX(PAD + 62), mapY(52));
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(Math.max(5, 10 * scale));
-  doc.text(meta.scope, mapX(PAD + 62), mapY(68));
-  doc.text(new Date().toLocaleString(), mapX(content.width - PAD), mapY(32), { align: "right" });
-  doc.text(`Prepared by ${meta.generatedBy}`, mapX(content.width - PAD), mapY(50), { align: "right" });
-
-  const offsetX = PAD;
-  const offsetY = HEADER_H;
-  for (const band of layout.bands) {
-    doc.setFillColor(241, 245, 249);
-    doc.setDrawColor(203, 213, 225);
-    doc.rect(mapX(offsetX), mapY(offsetY + band.y), RAIL_W * scale, band.height * scale, "FD");
-    doc.setTextColor(15, 23, 42);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(Math.max(5, 14 * scale));
-    doc.text(band.level, mapX(offsetX + RAIL_W / 2), mapY(offsetY + band.y + band.height / 2), { align: "center" });
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(100, 116, 139);
-    doc.setFontSize(Math.max(3.6, 7.5 * scale));
-    doc.text(band.label, mapX(offsetX + RAIL_W / 2), mapY(offsetY + band.y + band.height / 2 + 11 * scale), { align: "center" });
-    doc.setDrawColor(245, 158, 11);
-    doc.setLineWidth(1.6 * scale);
-    doc.line(mapX(offsetX), mapY(offsetY + band.y + band.height - 1), mapX(content.width - PAD), mapY(offsetY + band.y + band.height - 1));
-  }
-
-  doc.setDrawColor(51, 65, 85);
-  doc.setLineWidth(Math.max(0.5, 1.2 * scale));
-  for (const edge of layout.edges) {
-    for (let index = 1; index < edge.points.length; index++) {
-      const [x1, y1] = edge.points[index - 1];
-      const [x2, y2] = edge.points[index];
-      doc.line(mapX(x1 + offsetX), mapY(y1 + offsetY), mapX(x2 + offsetX), mapY(y2 + offsetY));
-    }
-  }
-
-  for (const item of layout.nodes) {
-    const node = item.node;
-    const x = mapX(item.x - CARD_W / 2 + offsetX);
-    const y = mapY(item.y + offsetY);
-    const w = CARD_W * scale;
-    const h = CARD_H * scale;
-    const fill: [number, number, number] = node.temporary ? [253, 230, 138] : [255, 255, 255];
-    const stroke: [number, number, number] = node.vacant ? [100, 116, 139] : node.temporary ? [245, 158, 11] : [51, 65, 85];
-    doc.setFillColor(fill[0], fill[1], fill[2]);
-    doc.setDrawColor(stroke[0], stroke[1], stroke[2]);
-    if (node.vacant || node.moreOf) doc.setLineDashPattern([3, 2], 0);
-    doc.setLineWidth(Math.max(0.4, 1.1 * scale));
-    doc.roundedRect(x, y, w, h, 2 * scale, 2 * scale, "FD");
-    if (node.vacant || node.moreOf) doc.setLineDashPattern([], 0);
-    doc.setTextColor(15, 23, 42);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(Math.max(4, 10 * scale));
-    doc.text(doc.splitTextToSize(clip(node.title), Math.max(20, w - 8 * scale))[0], x + w / 2, y + h * 0.36, { align: "center", maxWidth: w - 8 * scale });
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(51, 65, 85);
-    doc.setFontSize(Math.max(3.8, 9 * scale));
-    doc.text(doc.splitTextToSize(clip(node.name), Math.max(20, w - 8 * scale))[0], x + w / 2, y + h * 0.62, { align: "center", maxWidth: w - 8 * scale });
-    if (node.reports > 0 && !node.moreOf) {
-      doc.setTextColor(100, 116, 139);
-      doc.setFontSize(Math.max(3.2, 7.5 * scale));
-      doc.text(`${node.reports} direct reports`, x + w / 2, y + h * 0.82, { align: "center" });
-    }
-  }
-
-  // Printed legend
-  const legendY = HEADER_H + layout.height + 18;
-  doc.setDrawColor(226, 232, 240);
-  doc.setLineWidth(scale);
-  doc.line(mapX(PAD), mapY(legendY - 12), mapX(content.width - PAD), mapY(legendY - 12));
-  const legend: [string, [number, number, number], [number, number, number], boolean][] = [
-    ["Filled post", [255, 255, 255], [51, 65, 85], false],
-    ["Vacant post", [255, 255, 255], [100, 116, 139], true],
-    ["Temporary / contract", [253, 230, 138], [245, 158, 11], false],
-    ["Level band", [241, 245, 249], [245, 158, 11], false],
-  ];
-  let legendX = PAD;
-  doc.setFontSize(Math.max(3.8, 9.5 * scale));
-  for (const [label, fill, stroke, dashed] of legend) {
-    doc.setFillColor(fill[0], fill[1], fill[2]);
-    doc.setDrawColor(stroke[0], stroke[1], stroke[2]);
-    if (dashed) doc.setLineDashPattern([3, 2], 0);
-    doc.rect(mapX(legendX), mapY(legendY), 30 * scale, 16 * scale, "FD");
-    if (dashed) doc.setLineDashPattern([], 0);
-    if (label === "Level band") {
-      doc.setDrawColor(245, 158, 11);
-      doc.setLineWidth(2 * scale);
-      doc.line(mapX(legendX), mapY(legendY + 15), mapX(legendX + 30), mapY(legendY + 15));
-    }
-    doc.setTextColor(51, 65, 85);
-    doc.text(label, mapX(legendX + 38), mapY(legendY + 11));
-    legendX += 38 + label.length * 5.6 + 26;
-  }
-  doc.setTextColor(100, 116, 139);
-  doc.setFontSize(Math.max(4, 8.5 * scale));
-  doc.text("ATOMA · Organization chart · reporting lines follow each employee’s line manager", mapX(PAD), mapY(content.height - 8));
-  doc.save(fileName);
-}
-
-const U = 1 / 96; // design pixels → Visio inches
-const VDX_HEADER = 86;
-
-function vdxEscape(value: string): string {
-  return value.replace(/[<>&"']/g, (char) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&apos;" })[char] ?? char);
-}
-
-function vdxText(title: string, name: string, level: string, size = 0.075): string {
-  return `<Section N="Character"><Row IX="0"><Cell N="Font" V="0"/><Cell N="Size" V="${size}"/><Cell N="Style" V="1"/><Cell N="Color" V="#0F172A"/></Row><Row IX="1"><Cell N="Font" V="0"/><Cell N="Size" V="${size * 0.92}"/><Cell N="Style" V="0"/><Cell N="Color" V="#334155"/></Row></Section><Section N="Paragraph"><Row IX="0"><Cell N="HorzAlign" V="1"/><Cell N="SpBefore" V="0"/><Cell N="SpAfter" V="0"/><Cell N="LineRule" V="0"/><Cell N="LineSpace" V="0.88"/></Row></Section><Text>${vdxEscape(title)}${name ? `&#10;<cp IX="1"/>${vdxEscape(name)}` : ""}${level ? ` <cp IX="1"/>${vdxEscape(level)}` : ""}</Text>`;
-}
-
-function vdxRect(id: number, x: number, y: number, w: number, h: number, fill: string, stroke: string, dashed: boolean, text: string): string {
-  const px = x * U;
-  const py = y * U;
-  const pw = Math.max(w * U, 0.08);
-  const ph = Math.max(h * U, 0.08);
-  return `<Shape ID="${id}" Type="Shape" LineStyle="0" FillStyle="0" TextStyle="0">
-<Cell N="PinX" V="${px.toFixed(3)}"/><Cell N="PinY" V="${py.toFixed(3)}"/><Cell N="Width" V="${pw.toFixed(3)}"/><Cell N="Height" V="${ph.toFixed(3)}"/>
-<Cell N="LocPinX" V="${(pw / 2).toFixed(3)}"/><Cell N="LocPinY" V="${(ph / 2).toFixed(3)}"/>
-<Cell N="FillForegnd" V="${fill}"/><Cell N="FillPattern" V="1"/><Cell N="LineColor" V="${stroke}"/><Cell N="LineWeight" V="0.6"/><Cell N="LinePattern" V="${dashed ? 2 : 1}"/><Cell N="TextBkgnd" V="#FFFFFF"/>
-<Section N="Geometry" IX="0"><Cell N="NoFill" V="1"/><Cell N="NoLine" V="1"/>
-<Row T="MoveTo" IX="1"><Cell N="X" V="0"/><Cell N="Y" V="0"/></Row>
-<Row T="LineTo" IX="2"><Cell N="X" V="${pw.toFixed(3)}"/><Cell N="Y" V="0"/></Row>
-<Row T="LineTo" IX="3"><Cell N="X" V="${pw.toFixed(3)}"/><Cell N="Y" V="${ph.toFixed(3)}"/></Row>
-<Row T="LineTo" IX="4"><Cell N="X" V="0"/><Cell N="Y" V="${ph.toFixed(3)}"/></Row>
-<Row T="LineTo" IX="5"><Cell N="X" V="0"/><Cell N="Y" V="0"/></Row>
-</Section>${text}</Shape>`;
-}
-
-function vdxLine(id: number, points: [number, number][], stroke: string, weight = 0.5): string {
-  const xs = points.map((p) => p[0]);
-  const ys = points.map((p) => p[1]);
-  const minX = Math.min(...xs);
-  const maxX = Math.max(...xs);
-  const minY = Math.min(...ys);
-  const maxY = Math.max(...ys);
-  const w = Math.max((maxX - minX) * U, 0.01);
-  const h = Math.max((maxY - minY) * U, 0.01);
-  const rows = points
-    .map(([x, y], index) => `<Row T="${index === 0 ? "MoveTo" : "LineTo"}" IX="${index + 1}"><Cell N="X" V="${((x - minX) * U).toFixed(3)}"/><Cell N="Y" V="${((y - minY) * U).toFixed(3)}"/></Row>`)
+function groupSvg(n: LNode): string {
+  const members = n.members ?? [];
+  const level = members[0] ? members[0].level : "L2";
+  const color = levelColor(level);
+  const grid = groupCardGrid(members.length);
+  const colW = (n.w - 12) / grid.cols;
+  const rowH = 26;
+  const rows = members
+    .map((m, i) => {
+      const col = i % grid.cols;
+      const row = Math.floor(i / grid.cols);
+      const x = n.x + 6 + col * colW;
+      const y = n.y + 36 + row * rowH;
+      const st = employeeStatus(m.emp);
+      const fill = st.temporary ? "#FEF08A" : st.vacant ? "#fff" : "#F8FAFC";
+      return `<rect x="${x}" y="${y}" width="${colW - 4}" height="${rowH - 3}" rx="3" fill="${fill}" stroke="${st.vacant ? "#64748B" : "#E2E8F0"}" ${st.vacant ? `stroke-dasharray="3 2"` : ""}/>
+      <text x="${x + 5}" y="${y + 9}" font-size="7.5" font-weight="700" fill="#0F172A">${esc(st.vacant ? "VACANT" : m.emp.fullName).slice(0, 25)}</text>
+      <text x="${x + 5}" y="${y + 18}" font-size="6.8" fill="#64748B">${esc(m.emp.title).slice(0, 31)}</text>`;
+    })
     .join("");
-  return `<Shape ID="${id}" Type="Shape" LineStyle="0" FillStyle="0" TextStyle="0">
-<Cell N="PinX" V="${(((minX + maxX) / 2) * U).toFixed(3)}"/><Cell N="PinY" V="${(((minY + maxY) / 2) * U).toFixed(3)}"/><Cell N="Width" V="${w.toFixed(3)}"/><Cell N="Height" V="${h.toFixed(3)}"/>
-<Cell N="LocPinX" V="${(w / 2).toFixed(3)}"/><Cell N="LocPinY" V="${(h / 2).toFixed(3)}"/>
-<Cell N="FillForegnd" V="#FFFFFF"/><Cell N="FillPattern" V="0"/><Cell N="LineColor" V="${stroke}"/><Cell N="LineWeight" V="${weight}"/><Cell N="LinePattern" V="1"/>
-<Section N="Geometry" IX="0"><Cell N="NoFill" V="1"/><Cell N="NoLine" V="0"/>${rows}</Section></Shape>`;
+  return `<g><rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="5" fill="#fff" stroke="${color}" stroke-width="1.2"/>
+    <rect x="${n.x}" y="${n.y}" width="${n.w}" height="30" rx="5" fill="#F8FAFC"/>
+    <rect x="${n.x + 8}" y="${n.y + 8}" width="26" height="14" rx="3" fill="${color}"/>
+    <text x="${n.x + 21}" y="${n.y + 18}" text-anchor="middle" font-size="8" font-weight="700" fill="#fff">${esc(displayLevel(level))}</text>
+    <text x="${n.x + 40}" y="${n.y + 18}" font-size="8.5" font-weight="700" fill="#0F172A">${members.length} positions at this level</text>${rows}</g>`;
 }
 
-/**
- * Visio XML Drawing (.vdx) — opens directly in Microsoft Visio (and can be re-saved there
- * as .vsd / .vsdx). Boxes, connectors, level rail, separators and legend are real Visio
- * shapes, so the whole chart stays editable in Visio.
- */
-export function buildVisioVDX(layout: OrganogramLayout, meta: OrganogramExportMeta): string {
-  const contentHeight = VDX_HEADER + layout.height + 120;
+/** Editable SVG in the approved ATOMA organogram style. */
+export function buildOrgSvg(layout: OrgLayout, opts: OrgExportOpts): string {
+  const headerH = 74;
+  const footerH = 58;
+  const chartY = headerH;
+  const width = Math.max(900, layout.width);
+  const height = layout.height + headerH + footerH;
+  const bands = layout.layers
+    .map((L: LayerInfo) => {
+      const start = Math.max(0, L.offset - layout.gapMain / 2) + chartY;
+      const size = L.size + layout.gapMain;
+      return `<rect x="0" y="${start}" width="${width}" height="${size}" fill="${L.index % 2 ? "#F8FAFC" : "#FFFFFF"}"/>
+      <rect x="12" y="${start}" width="48" height="${size}" fill="#FDE68A" fill-opacity="0.9"/>
+      ${L.index > 0 ? `<line x1="12" y1="${start}" x2="${width - 12}" y2="${start}" stroke="#F8B900" stroke-width="2"/>` : ""}
+      <text x="36" y="${start + size / 2 - 3}" text-anchor="middle" font-size="13" font-weight="800" fill="#0F172A">${esc(displayLevel(L.level) + (L.continuation ? " cont." : ""))}</text>
+      <text x="36" y="${start + size / 2 + 11}" text-anchor="middle" font-size="8" fill="#475569">${L.count}</text>
+      <text x="70" y="${start + 13}" font-size="8" font-weight="700" fill="#64748B">${esc(L.band)}</text>`;
+    })
+    .join("");
+  const edges = layout.edges
+    .map((e) => `<path d="${e.d}" fill="none" stroke="${e.inferred ? "#F59E0B" : "#1F2937"}" stroke-width="1.25" ${e.inferred ? `stroke-dasharray="5 4"` : ""} ${e.kind === "staff" ? `stroke-dasharray="4 3"` : ""}/>`)
+    .join("");
+  const nodes = layout.nodes.map((n) => (n.kind === "group" ? groupSvg(n) : nodeSvg(n, layout))).join("");
+  const footer = opts.footer ?? "Made with \u2665 by Mohibullah Afzalzada";
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+  <metadata>ATOMA Workforce Intelligence · generated ${new Date().toISOString()} · editable vector organogram</metadata>
+  <rect width="${width}" height="${height}" fill="#FFFFFF"/>
+  <rect width="${width}" height="${headerH}" fill="#062B5B"/>
+  <rect y="${headerH - 4}" width="${width}" height="4" fill="#00A8FF"/>
+  <rect x="18" y="13" width="60" height="46" rx="9" fill="#fff" fill-opacity=".96"/>
+  <g transform="translate(22 17) scale(0.82)" fill="none" stroke-width="11" stroke-linecap="round" stroke-linejoin="round">
+    ${ATOMA_MARK_PATHS.map((p) => `<path d="${p.d}" stroke="${p.stroke}" opacity="${p.opacity}"/>`).join("")}
+  </g>
+  <text x="88" y="34" font-family="Arial,sans-serif" font-size="20" font-weight="800" fill="#fff">${esc(opts.title)}</text>
+  <text x="88" y="52" font-family="Arial,sans-serif" font-size="10" fill="#CFE8FF">${esc(opts.subtitle)}</text>
+  <text x="${width - 20}" y="35" text-anchor="end" font-family="Arial,sans-serif" font-size="9" fill="#CFE8FF">ATOMA · Workforce Intelligence</text>
+  <g transform="translate(0 ${chartY})">${bands}${edges}${nodes}</g>
+  <line x1="20" y1="${height - footerH + 4}" x2="${width - 20}" y2="${height - footerH + 4}" stroke="#E2E8F0"/>
+  <g transform="translate(${Math.max(20, width / 2 - 300)} ${height - footerH + 12})" font-family="Arial,sans-serif" font-size="8" fill="#475569">
+    <rect x="0" y="0" width="22" height="12" rx="2" fill="#fff" stroke="#94A3B8"/><text x="28" y="9">Filled post</text>
+    <rect x="96" y="0" width="22" height="12" rx="2" fill="#fff" stroke="#64748B" stroke-dasharray="4 3"/><text x="124" y="9">Vacant post</text>
+    <rect x="196" y="0" width="22" height="12" rx="2" fill="#FEF08A" stroke="#D97706"/><text x="224" y="9">Temporary / contract</text>
+    <line x1="348" y1="6" x2="370" y2="6" stroke="#F59E0B" stroke-width="1.5" stroke-dasharray="5 4"/><text x="376" y="9">Inferred line</text>
+    <rect x="462" y="0" width="12" height="12" fill="#FDE68A"/><text x="480" y="9">Level band</text>
+  </g>
+  <text x="${width / 2}" y="${height - 10}" text-anchor="middle" font-family="Arial,sans-serif" font-size="9.5" fill="#64748B">${esc(footer)}</text>
+</svg>`;
+}
+
+export function downloadOrgSvg(layout: OrgLayout, opts: OrgExportOpts): void {
+  downloadBlob(new Blob([buildOrgSvg(layout, opts)], { type: "image/svg+xml;charset=utf-8" }), `ATOMA_Organogram_${stamp()}.svg`);
+}
+
+/** Single-page editable vector PDF: every card, line and label stays selectable text/paths. */
+export async function downloadOrgVectorPdf(layout: OrgLayout, opts: OrgExportOpts): Promise<void> {
+  const { jsPDF } = await import("jspdf");
+  const aspect = layout.width / (layout.height + 132);
+  const maxMm = 1200;
+  let targetW = maxMm;
+  let targetH = targetW / aspect;
+  if (targetH > maxMm) {
+    targetH = maxMm;
+    targetW = targetH * aspect;
+  }
+  const doc = new jsPDF({ orientation: targetW >= targetH ? "landscape" : "portrait", unit: "mm", format: [Math.max(160, targetW), Math.max(100, targetH)], compress: true });
+  const PW = doc.internal.pageSize.getWidth();
+  const PH = doc.internal.pageSize.getHeight();
+  const header = Math.min(22, PH * 0.16);
+  const footer = Math.min(18, PH * 0.13);
+  const margin = Math.min(5, PW * 0.006);
+  const scale = Math.min((PW - margin * 2) / layout.width, (PH - header - footer) / layout.height);
+  const ox = (PW - layout.width * scale) / 2;
+  const oy = header;
+  const X = (v: number) => ox + v * scale;
+  const Y = (v: number) => oy + v * scale;
+  const mm = (v: number) => v * scale;
+  const rgb = (hex: string): [number, number, number] => {
+    const h = hex.replace("#", "").padEnd(6, "0");
+    return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+  };
+  const fillHex = (h: string) => doc.setFillColor(...rgb(h));
+  const strokeHex = (h: string) => doc.setDrawColor(...rgb(h));
+
+  fillHex("#062B5B");
+  doc.rect(0, 0, PW, header, "F");
+  fillHex("#00A8FF");
+  doc.rect(0, header - 1, PW, 1.4, "F");
+  fillHex("#FFFFFF");
+  doc.roundedRect(margin + 1, header * 0.12, header * 1.05, header * 0.68, 2, 2, "F");
+  doc.setLineWidth(Math.max(1, header * 0.08));
+  doc.setLineCap("round");
+  for (const path of ATOMA_MARK_PATHS) {
+    strokeHex(path.stroke);
+    const nums = (path.d.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
+    for (let i = 2; i + 1 < nums.length; i += 2) {
+      doc.line(margin + 5 + nums[i - 2] * 0.55, header * 0.2 + nums[i - 1] * 0.55, margin + 5 + nums[i] * 0.55, header * 0.2 + nums[i + 1] * 0.55);
+    }
+  }
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(Math.max(8, header * 0.7));
+  doc.text(opts.title, margin + header * 1.2, header * 0.45);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(200, 232, 255);
+  doc.setFontSize(Math.max(4, header * 0.3));
+  doc.text(opts.subtitle, margin + header * 1.2, header * 0.74);
+
+  for (const L of layout.layers) {
+    const start = Math.max(0, L.offset - layout.gapMain / 2);
+    const size = L.size + layout.gapMain;
+    fillHex(L.index % 2 ? "#F8FAFC" : "#FFFFFF");
+    doc.rect(X(0), Y(start), mm(layout.width), mm(size), "F");
+    fillHex("#FDE68A");
+    doc.rect(X(12), Y(start), mm(48), mm(size), "F");
+    if (L.index > 0) {
+      strokeHex("#F8B900");
+      doc.setLineWidth(Math.max(0.15, scale * 2));
+      doc.line(X(12), Y(start), X(layout.width - 12), Y(start));
+    }
+    doc.setTextColor(15, 23, 42);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(Math.max(2.5, mm(12)));
+    doc.text(displayLevel(L.level) + (L.continuation ? " cont." : ""), X(36), Y(start + size / 2), { align: "center" });
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(Math.max(2, mm(8)));
+    doc.setTextColor(71, 85, 105);
+    doc.text(String(L.count), X(36), Y(start + size / 2) + mm(12), { align: "center" });
+    doc.setFontSize(Math.max(2, mm(8)));
+    doc.text(L.band, X(70), Y(start + 12));
+  }
+
+  for (const edge of layout.edges) {
+    strokeHex(edge.inferred ? "#F59E0B" : "#1F2937");
+    doc.setLineWidth(Math.max(0.1, scale * (edge.inferred ? 1.5 : 1.25)));
+    doc.setLineDashPattern(edge.inferred ? [Math.max(0.5, mm(5)), Math.max(0.4, mm(4))] : [], 0);
+    for (let i = 1; i < edge.points.length; i++) {
+      const [x1, y1] = edge.points[i - 1];
+      const [x2, y2] = edge.points[i];
+      doc.line(X(x1), Y(y1), X(x2), Y(y2));
+    }
+    doc.setLineDashPattern([], 0);
+  }
+
+  for (const n of layout.nodes) {
+    const x = X(n.x);
+    const y = Y(n.y);
+    const w = mm(n.w);
+    const h = mm(n.h);
+    if (n.kind === "group") {
+      const members = n.members ?? [];
+      const color = levelColor(members[0]?.level ?? "L2");
+      fillHex("#FFFFFF");
+      strokeHex(color);
+      doc.setLineWidth(Math.max(0.1, scale));
+      doc.roundedRect(x, y, w, h, 1.5, 1.5, "FD");
+      fillHex("#F8FAFC");
+      doc.rect(x, y, w, mm(30), "F");
+      doc.setTextColor(15, 23, 42);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(Math.max(2.2, mm(9)));
+      doc.text(`${members.length} positions at this level`, x + mm(40), y + mm(19));
+      const grid = groupCardGrid(members.length);
+      const colW = (n.w - 12) / grid.cols;
+      members.forEach((m, i) => {
+        const mx = x + mm(6 + (i % grid.cols) * colW);
+        const my = y + mm(36 + Math.floor(i / grid.cols) * 26);
+        const st = employeeStatus(m.emp);
+        fillHex(st.temporary ? "#FEF08A" : "#F8FAFC");
+        strokeHex(st.vacant ? "#64748B" : "#E2E8F0");
+        doc.roundedRect(mx, my, mm(colW - 4), mm(23), 1, 1, "FD");
+        doc.setTextColor(15, 23, 42);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(Math.max(1.8, mm(7.2)));
+        doc.text((st.vacant ? "VACANT" : m.emp.fullName).slice(0, 25), mx + mm(5), my + mm(9));
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(Math.max(1.6, mm(6.6)));
+        doc.setTextColor(100, 116, 139);
+        doc.text(m.emp.title.slice(0, 31), mx + mm(5), my + mm(18));
+      });
+      continue;
+    }
+    const node = n.node as OrgNode;
+    const e = node.emp;
+    const st = employeeStatus(e);
+    const color = levelColor(node.level);
+    fillHex(st.temporary ? "#FEF08A" : "#FFFFFF");
+    strokeHex(st.vacant ? "#64748B" : n.inferred ? "#F59E0B" : "#94A3B8");
+    doc.setLineWidth(Math.max(0.1, scale * (n.inferred ? 1.8 : 1.2)));
+    doc.setLineDashPattern(st.vacant || n.inferred ? [Math.max(0.4, mm(4)), Math.max(0.3, mm(3))] : [], 0);
+    doc.roundedRect(x, y, w, h, 1.5, 1.5, "FD");
+    doc.setLineDashPattern([], 0);
+    fillHex(color);
+    doc.rect(x, y, w, mm(6), "F");
+    doc.setTextColor(15, 23, 42);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(Math.max(2.2, mm(10)));
+    doc.text(st.vacant ? "VACANT" : e.fullName, x + mm(38), y + mm(22), { maxWidth: w - mm(44) });
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(Math.max(1.8, mm(8.5)));
+    doc.setTextColor(51, 65, 85);
+    doc.text(doc.splitTextToSize(e.title || "", w - mm(20)).slice(0, 2), x + mm(10), y + mm(40));
+    fillHex(color);
+    doc.roundedRect(x + mm(10), y + h - mm(21), mm(28), mm(14), 1, 1, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(Math.max(1.7, mm(7.5)));
+    doc.text(displayLevel(node.level), x + mm(24), y + h - mm(11), { align: "center" });
+    doc.setTextColor(100, 116, 139);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(Math.max(1.7, mm(7.5)));
+    doc.text(e.department.slice(0, 24), x + mm(43), y + h - mm(11));
+    if (st.temporary) {
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(146, 64, 14);
+      doc.text("TEMP", x + w - mm(8), y + mm(14), { align: "right" });
+    }
+  }
+
+  const ly = PH - footer + 2;
+  const boxW = 5;
+  const boxH = 3.2;
+  let lx = Math.max(margin, PW / 2 - 82);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(Math.max(3.2, footer * 0.26));
+  doc.setTextColor(71, 85, 105);
+  const legendBox = (label: string, fill: string, stroke: string, dashed = false) => {
+    fillHex(fill);
+    strokeHex(stroke);
+    doc.setLineDashPattern(dashed ? [1.2, 1] : [], 0);
+    doc.rect(lx, ly, boxW, boxH, "FD");
+    doc.setLineDashPattern([], 0);
+    doc.text(label, lx + boxW + 1.5, ly + boxH * 0.82);
+    lx += boxW + doc.getTextWidth(label) + 7;
+  };
+  legendBox("Filled post", "#FFFFFF", "#94A3B8");
+  legendBox("Vacant post", "#FFFFFF", "#64748B", true);
+  legendBox("Temporary / contract", "#FEF08A", "#D97706");
+  strokeHex("#F59E0B");
+  doc.setLineDashPattern([1.2, 1], 0);
+  doc.line(lx, ly + boxH / 2, lx + boxW, ly + boxH / 2);
+  doc.setLineDashPattern([], 0);
+  doc.text("Inferred line", lx + boxW + 1.5, ly + boxH * 0.82);
+  lx += boxW + doc.getTextWidth("Inferred line") + 7;
+  legendBox("Level band", "#FDE68A", "#FDE68A");
+
+  doc.setFontSize(Math.max(4, footer * 0.34));
+  doc.setTextColor(100, 116, 139);
+  const footerText = opts.footer ?? "Made with \u2665 by Mohibullah Afzalzada";
+  doc.text(footerText, (PW - doc.getTextWidth(footerText)) / 2, PH - footer * 0.32);
+  doc.save(`ATOMA_Organogram_Vector_${stamp()}.pdf`);
+}
+
+/** Prints one landscape page with the full sheet (legend included). */
+export function printOrgSvg(layout: OrgLayout, opts: OrgExportOpts): boolean {
+  const win = window.open("", "_blank");
+  if (!win) return false;
+  try {
+    win.opener = null;
+  } catch {
+    /* ignore */
+  }
+  win.document.write(`<!doctype html><html><head><title>${esc(opts.title)}</title><style>@page{size:landscape;margin:6mm}html,body{margin:0;background:#fff}svg{width:100%;height:auto;display:block}</style></head><body>${buildOrgSvg(layout, opts)}<script>window.onload=()=>setTimeout(()=>window.print(),250)<\\/script></body></html>`);
+  win.document.close();
+  return true;
+}
+
+/** Native editable Microsoft Visio drawing (.vsdx); falls back to Visio XML (.vdx). */
+export async function downloadOrgVisio(layout: OrgLayout, opts: OrgExportOpts): Promise<{ format: "vsdx" | "vdx"; shapes: number }> {
+  const svgText = buildOrgSvg(layout, opts);
+  const host = document.createElement("div");
+  host.style.cssText = "position:fixed;left:-100000px;top:0;pointer-events:none;z-index:-9999";
+  host.innerHTML = svgText;
+  document.body.appendChild(host);
+  try {
+    const svg = host.querySelector("svg") as SVGSVGElement | null;
+    if (!svg) throw new Error("SVG not available for conversion");
+    const { svgElementToVsdx } = await import("@klyratech/mermaid-to-visio");
+    const { bytes } = svgElementToVsdx(svg, { title: opts.title }) as { bytes: ArrayBuffer; stats: { shapes: number; texts: number } };
+    const copy = new Uint8Array(bytes.byteLength);
+    copy.set(new Uint8Array(bytes));
+    downloadBlob(new Blob([copy.buffer as ArrayBuffer], { type: "application/vnd.ms-visio.drawing" }), `ATOMA_Organogram_Editable_${stamp()}.vsdx`);
+    return { format: "vsdx", shapes: layout.nodes.length + layout.edges.length };
+  } catch {
+    const xml = buildVisioVdx(layout, opts);
+    downloadBlob(new Blob([xml], { type: "application/vnd.ms-visio" }), `ATOMA_Organogram_Editable_${stamp()}.vdx`);
+    return { format: "vdx", shapes: layout.nodes.length + layout.edges.length };
+  } finally {
+    host.remove();
+  }
+}
+
+const vdxText = (title: string, name: string, chip: string) =>
+  `<Section N="Character"><Row IX="0"><Cell N="Font" V="0"/><Cell N="Size" V="0.075"/><Cell N="Style" V="1"/><Cell N="Color" V="#0F172A"/></Row><Row IX="1"><Cell N="Font" V="0"/><Cell N="Size" V="0.068"/><Cell N="Style" V="0"/><Cell N="Color" V="#334155"/></Row></Section><Section N="Paragraph"><Row IX="0"><Cell N="HorzAlign" V="1"/><Cell N="SpBefore" V="0"/><Cell N="SpAfter" V="0"/><Cell N="LineRule" V="0"/><Cell N="LineSpace" V="0.86"/></Row></Section><Text>${esc(title)}${name ? `&#10;${esc(name)}` : ""}${chip ? ` &#10;${esc(chip)}` : ""}</Text>`;
+
+/** Compact Visio XML fallback: real shapes for cards, connectors, bands and legend. */
+export function buildVisioVdx(layout: OrgLayout, opts: OrgExportOpts): string {
+  const U = 1 / 96;
+  const header = 90;
   const width = layout.width + 60;
-  const offsetX = 30;
-  const toY = (screenY: number) => contentHeight - screenY;
+  const height = header + layout.height + 130;
+  const offX = 30;
+  const toY = (y: number) => height - y;
   const shapes: string[] = [];
   let id = 1;
+  const rect = (x: number, y: number, w: number, h: number, fill: string, stroke: string, dashed: boolean, text: string) =>
+    `<Shape ID="${id++}" Type="Shape" LineStyle="0" FillStyle="0" TextStyle="0"><Cell N="PinX" V="${((x + w / 2) * U).toFixed(3)}"/><Cell N="PinY" V="${(toY(y + h / 2) * U).toFixed(3)}"/><Cell N="Width" V="${(w * U).toFixed(3)}"/><Cell N="Height" V="${(h * U).toFixed(3)}"/><Cell N="LocPinX" V="${((w / 2) * U).toFixed(3)}"/><Cell N="LocPinY" V="${((h / 2) * U).toFixed(3)}"/><Cell N="FillForegnd" V="${fill}"/><Cell N="FillPattern" V="1"/><Cell N="LineColor" V="${stroke}"/><Cell N="LineWeight" V="0.6"/><Cell N="LinePattern" V="${dashed ? 2 : 1}"/><Section N="Geometry" IX="0"><Cell N="NoFill" V="1"/><Cell N="NoLine" V="1"/><Row T="MoveTo" IX="1"><Cell N="X" V="0"/><Cell N="Y" V="0"/></Row><Row T="LineTo" IX="2"><Cell N="X" V="${(w * U).toFixed(3)}"/><Cell N="Y" V="0"/></Row><Row T="LineTo" IX="3"><Cell N="X" V="${(w * U).toFixed(3)}"/><Cell N="Y" V="${(h * U).toFixed(3)}"/></Row><Row T="LineTo" IX="4"><Cell N="X" V="0"/><Cell N="Y" V="${(h * U).toFixed(3)}"/></Row><Row T="LineTo" IX="5"><Cell N="X" V="0"/><Cell N="Y" V="0"/></Row></Section>${text}</Shape>`;
+  const line = (points: [number, number][], stroke: string) => {
+    const xs = points.map((p) => p[0]);
+    const ys = points.map((p) => p[1]);
+    const minX = Math.min(...xs);
+    const minY = Math.min(...ys);
+    const w = Math.max((Math.max(...xs) - minX) * U, 0.01);
+    const h = Math.max((Math.max(...ys) - minY) * U, 0.01);
+    const rows = points.map((p, i) => `<Row T="${i === 0 ? "MoveTo" : "LineTo"}" IX="${i + 1}"><Cell N="X" V="${((p[0] - minX) * U).toFixed(3)}"/><Cell N="Y" V="${((p[1] - minY) * U).toFixed(3)}"/></Row>`).join("");
+    return `<Shape ID="${id++}" Type="Shape" LineStyle="0" FillStyle="0" TextStyle="0"><Cell N="PinX" V="${(((minX + Math.max(...xs)) / 2) * U).toFixed(3)}"/><Cell N="PinY" V="${(((minY + Math.max(...ys)) / 2) * U).toFixed(3)}"/><Cell N="Width" V="${w.toFixed(3)}"/><Cell N="Height" V="${h.toFixed(3)}"/><Cell N="LocPinX" V="${(w / 2).toFixed(3)}"/><Cell N="LocPinY" V="${(h / 2).toFixed(3)}"/><Cell N="FillPattern" V="0"/><Cell N="LineColor" V="${stroke}"/><Cell N="LineWeight" V="0.6"/><Cell N="LinePattern" V="1"/><Section N="Geometry" IX="0"><Cell N="NoFill" V="1"/><Cell N="NoLine" V="0"/>${rows}</Section></Shape>`;
+  };
 
-  // Header text
-  shapes.push(`<Shape ID="${id++}" Type="Shape" LineStyle="0" FillStyle="0" TextStyle="0"><Cell N="PinX" V="${((width / 2) * U).toFixed(3)}"/><Cell N="PinY" V="${(toY(30) * U).toFixed(3)}"/><Cell N="Width" V="${((width - 80) * U).toFixed(3)}"/><Cell N="Height" V="${(40 * U).toFixed(3)}"/><Cell N="LocPinX" V="${(((width - 80) / 2) * U).toFixed(3)}"/><Cell N="LocPinY" V="${(20 * U).toFixed(3)}"/><Cell N="FillPattern" V="0"/><Cell N="LinePattern" V="0"/>
-<Section N="Character"><Row IX="0"><Cell N="Font" V="0"/><Cell N="Size" V="0.16"/><Cell N="Style" V="1"/><Cell N="Color" V="#0D47A1"/></Row></Section>
-<Section N="Paragraph"><Row IX="0"><Cell N="HorzAlign" V="1"/></Row></Section>
-<Text>${vdxEscape(`ATOMA · ${meta.title}`)}</Text></Shape>`);
-  shapes.push(`<Shape ID="${id++}" Type="Shape" LineStyle="0" FillStyle="0" TextStyle="0"><Cell N="PinX" V="${((width / 2) * U).toFixed(3)}"/><Cell N="PinY" V="${(toY(52) * U).toFixed(3)}"/><Cell N="Width" V="${((width - 80) * U).toFixed(3)}"/><Cell N="Height" V="${(24 * U).toFixed(3)}"/><Cell N="LocPinX" V="${(((width - 80) / 2) * U).toFixed(3)}"/><Cell N="LocPinY" V="${(12 * U).toFixed(3)}"/><Cell N="FillPattern" V="0"/><Cell N="LinePattern" V="0"/>
-<Section N="Character"><Row IX="0"><Cell N="Font" V="0"/><Cell N="Size" V="0.09"/><Cell N="Color" V="#64748B"/></Row></Section>
-<Section N="Paragraph"><Row IX="0"><Cell N="HorzAlign" V="1"/></Row></Section>
-<Text>${vdxEscape(`${meta.scope} · prepared by ${meta.generatedBy}`)}</Text></Shape>`);
-
-  for (const band of layout.bands) {
-    shapes.push(
-      vdxRect(id++, offsetX, VDX_HEADER + band.y, RAIL_W, band.height, "#F1F5F9", "#CBD5E1", false, `<Section N="Character"><Row IX="0"><Cell N="Font" V="0"/><Cell N="Size" V="0.14"/><Cell N="Style" V="1"/><Cell N="Color" V="#0F172A"/></Row></Section><Section N="Paragraph"><Row IX="0"><Cell N="HorzAlign" V="1"/></Row></Section><Text>${band.level}</Text>`)
-    );
-    shapes.push(vdxLine(id++, [[offsetX, toY(VDX_HEADER + band.y + band.height)], [offsetX + layout.width, toY(VDX_HEADER + band.y + band.height)]], "#F59E0B", 1.4));
+  shapes.push(rect(offX, 20, width - 60, 40, "#062B5B", "#062B5B", false, `<Section N="Character"><Row IX="0"><Cell N="Font" V="0"/><Cell N="Size" V="0.15"/><Cell N="Style" V="1"/><Cell N="Color" V="#FFFFFF"/></Row></Section><Section N="Paragraph"><Row IX="0"><Cell N="HorzAlign" V="1"/></Row></Section><Text>${esc(opts.title)}</Text>`));
+  for (const L of layout.layers) {
+    const start = header + Math.max(0, L.offset - layout.gapMain / 2);
+    const size = L.size + layout.gapMain;
+    shapes.push(rect(offX, start, 48, size, "#FDE68A", "#F8B900", false, `<Section N="Character"><Row IX="0"><Cell N="Font" V="0"/><Cell N="Size" V="0.12"/><Cell N="Style" V="1"/><Cell N="Color" V="#0F172A"/></Row></Section><Section N="Paragraph"><Row IX="0"><Cell N="HorzAlign" V="1"/></Row></Section><Text>${displayLevel(L.level)}${L.continuation ? " cont." : ""}</Text>`));
   }
-
-  for (const edge of layout.edges) {
-    const stroke = edge.kind === "staff" ? "#64748B" : "#334155";
-    shapes.push(vdxLine(id++, edge.points.map(([x, y]) => [offsetX + x, toY(VDX_HEADER + y)]), stroke, 0.6));
+  for (const edge of layout.edges) shapes.push(line(edge.points.map(([x, y]) => [offX + x, header + y]), edge.inferred ? "#F59E0B" : "#1F2937"));
+  for (const n of layout.nodes) {
+    const node = n.node as OrgNode;
+    const st = node ? employeeStatus(node.emp) : { vacant: false, temporary: false };
+    const color = levelColor(node?.level);
+    const fill = st.temporary ? "#FEF08A" : "#FFFFFF";
+    const dashed = n.inferred || st.vacant;
+    shapes.push(rect(offX + n.x, header + n.y, n.w, n.h, fill, dashed ? "#F59E0B" : "#94A3B8", dashed, vdxText(n.kind === "group" ? `${n.members?.length ?? 0} positions at this level` : st.vacant ? "VACANT" : node.emp.fullName, n.kind === "group" ? "" : node.emp.title, displayLevel(node?.level))));
+    void color;
   }
-
-  for (const item of layout.nodes) {
-    const node = item.node;
-    const fill = node.temporary ? "#FDE68A" : "#FFFFFF";
-    const stroke = node.vacant || node.moreOf ? "#64748B" : node.temporary ? "#F59E0B" : "#334155";
-    const level = node.levelLabel ?? node.level;
-    shapes.push(
-      vdxRect(id++, offsetX + item.x - CARD_W / 2, VDX_HEADER + item.y, CARD_W, CARD_H, fill, stroke, node.vacant || Boolean(node.moreOf), vdxText(node.title, node.name, node.level === level ? "" : level))
-    );
-  }
-
-  const legendY = VDX_HEADER + layout.height + 34;
-  const legend: [string, string, string, boolean][] = [
-    ["Filled post", "#FFFFFF", "#334155", false],
-    ["Vacant post", "#FFFFFF", "#64748B", true],
-    ["Temporary / contract", "#FDE68A", "#F59E0B", false],
-    ["Level band", "#F1F5F9", "#F59E0B", false],
-  ];
-  let legendX = offsetX;
-  for (const [label, fill, stroke, dashed] of legend) {
-    shapes.push(vdxRect(id++, legendX, legendY, 34, 18, fill, stroke, dashed, ""));
-    shapes.push(`<Shape ID="${id++}" Type="Shape" LineStyle="0" FillStyle="0" TextStyle="0"><Cell N="PinX" V="${((legendX + 120) * U).toFixed(3)}"/><Cell N="PinY" V="${(toY(legendY + 9) * U).toFixed(3)}"/><Cell N="Width" V="${(170 * U).toFixed(3)}"/><Cell N="Height" V="${(18 * U).toFixed(3)}"/><Cell N="LocPinX" V="${(85 * U).toFixed(3)}"/><Cell N="LocPinY" V="${(9 * U).toFixed(3)}"/><Cell N="FillPattern" V="0"/><Cell N="LinePattern" V="0"/>
-<Section N="Character"><Row IX="0"><Cell N="Font" V="0"/><Cell N="Size" V="0.08"/><Cell N="Color" V="#334155"/></Row></Section>
-<Section N="Paragraph"><Row IX="0"><Cell N="HorzAlign" V="0"/></Row></Section>
-<Text>${label}</Text></Shape>`);
-    legendX += 210;
-  }
-
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<VisioDocument xmlns="urn:schemas-microsoft-com:office:visio" genericType="0">
-<DocumentProperties><Title>${vdxEscape(meta.title)}</Title><Creator>ATOMA Workforce Intelligence</Creator><Company>ATOMA</Company></DocumentProperties>
-<StyleSheets><StyleSheet ID="0" NameU="No Style" Name="No Style"><Cell N="FillForegnd" V="#FFFFFF"/><Cell N="FillPattern" V="1"/><Cell N="LineColor" V="#334155"/><Cell N="LineWeight" V="0.5"/><Cell N="TextBkgnd" V="#FFFFFF"/></StyleSheet></StyleSheets>
-<DocumentSheet NameU="Document" Name="Document"/>
-<Masters/>
-<Pages><Page ID="0" NameU="Page-1" Name="Page-1" Background="0" BackPage="0">
-<PageSheet LineStyle="0" FillStyle="0" TextStyle="0">
-<Cell N="PageWidth" V="${(width * U).toFixed(3)}"/><Cell N="PageHeight" V="${(contentHeight * U).toFixed(3)}"/>
-<Cell N="PrintPageOrientation" V="2"/><Cell N="PageScale" V="1"/><Cell N="DrawingScale" V="1"/><Cell N="DrawingSizeType" V="3"/><Cell N="DrawingScaleType" V="0"/>
-</PageSheet>
-<Shapes>${shapes.join("")}</Shapes>
-</Page></Pages>
-</VisioDocument>`;
+  return `<?xml version="1.0" encoding="UTF-8"?><VisioDocument xmlns="urn:schemas-microsoft-com:office:visio" genericType="0"><DocumentProperties><Title>${esc(opts.title)}</Title><Creator>ATOMA Workforce Intelligence</Creator></DocumentProperties><StyleSheets><StyleSheet ID="0" NameU="No Style" Name="No Style"><Cell N="FillForegnd" V="#FFFFFF"/><Cell N="FillPattern" V="1"/><Cell N="LineColor" V="#334155"/><Cell N="LineWeight" V="0.5"/></StyleSheet></StyleSheets><DocumentSheet NameU="Document" Name="Document"/><Masters/><Pages><Page ID="0" NameU="Page-1" Name="Page-1"><PageSheet LineStyle="0" FillStyle="0" TextStyle="0"><Cell N="PageWidth" V="${(width * U).toFixed(2)}"/><Cell N="PageHeight" V="${(height * U).toFixed(2)}"/><Cell N="PrintPageOrientation" V="2"/><Cell N="DrawingSizeType" V="3"/><Cell N="DrawingScaleType" V="0"/></PageSheet><Shapes>${shapes.join("")}</Shapes></Page></Pages></VisioDocument>`;
 }
 
-export async function exportOrganogramVisio(layout: OrganogramLayout, meta: OrganogramExportMeta, fileName: string): Promise<void> {
-  const xml = buildVisioVDX(layout, meta);
-  downloadBlob(new Blob([xml], { type: "application/vnd.ms-visio" }), fileName);
-}
-
-/** Prints the organogram on one landscape page via a hidden frame (no popup blockers involved). */
-export function printOrganogram(layout: OrganogramLayout, meta: OrganogramExportMeta): void {
-  const svg = buildOrganogramSVG(layout, meta);
-  const frame = document.createElement("iframe");
-  frame.setAttribute("aria-hidden", "true");
-  frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;opacity:0";
-  document.body.appendChild(frame);
-  const doc = frame.contentWindow?.document;
-  if (!doc) return;
-  doc.open();
-  doc.write(`<!doctype html><html><head><title>${escapeXml(meta.title)}</title><style>
-    @page { size: landscape; margin: 8mm; }
-    html,body { margin:0; padding:0; background:#fff; }
-    svg { width: 100%; height: auto; display:block; }
-  </style></head><body>${svg}</body></html>`);
-  doc.close();
-  setTimeout(() => {
-    frame.contentWindow?.focus();
-    frame.contentWindow?.print();
-    setTimeout(() => frame.remove(), 2_000);
-  }, 250);
-}
+export type { Employee, OrgNode };
+export type { LayerInfo, LNode, OrgLayout };
+export { LEVEL_ORDER };
