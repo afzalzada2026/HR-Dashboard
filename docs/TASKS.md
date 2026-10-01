@@ -10,6 +10,12 @@ Legend: `[x]` complete, `[ ]` backlog, `[!]` production dependency/decision.
 - [x] PostgreSQL + Drizzle schema and health endpoint.
 - [x] Browser-only IndexedDB data mode.
 
+## Admin data management
+
+- [x] HR Admin employee row editor: add / edit / delete against the active dataset.
+- [x] Recomputation of derived fields (age, tenure, level rank, qualification group, province) on save.
+- [x] Robust handling of rows with no supervisor (CEO), blank identities and duplicate names.
+
 ## Data ingestion and quality
 
 - [x] Excel/CSV drag-drop and browse.

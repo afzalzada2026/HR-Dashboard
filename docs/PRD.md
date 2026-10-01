@@ -30,6 +30,13 @@ The authoritative permission matrix is in `src/lib/rbac.ts` and documented in `R
 
 ## 4. Functional requirements
 
+### 4.0 Admin employee row editor
+
+- HR Admin can add, edit and remove rows in the active dataset from **Data Sources → Employee data editor**.
+- The form covers the canonical HR fields; age, tenure, level rank, qualification group and province are recalculated on save through the same normalizer used by imports.
+- Rows without a supervisor (CEO and other chain roots) are valid and render as chart roots; blank identities are treated as vacant posts rather than errors.
+- Changes are stored with the active dataset in the browser and reflected across every dashboard immediately.
+
 ### 4.1 Data ingestion
 
 - Drag/drop and file-browser import for `.xlsx`, `.xls`, and `.csv`.

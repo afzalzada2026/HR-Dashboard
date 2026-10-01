@@ -34,17 +34,10 @@ function CardView({ node, layout, onOpenEmployee }: { node: LNode; layout: OrgLa
         borderWidth: node.inferred ? 1.8 : 1.2,
       }}
     >
-      <span className="absolute inset-x-0 top-0 h-1.5 rounded-t-[5px]" style={{ background: color }} />
-      <span className="absolute top-[15px] left-[8px] grid h-6 w-6 place-items-center rounded-full text-[8.5px] font-bold text-white" style={{ background: st.vacant ? "#64748B" : color }}>
-        {st.vacant ? "V" : initials(e.fullName, e.firstName, e.lastName)}
-      </span>
-      <span className="absolute top-[17px] left-[38px] right-2 truncate text-[10.5px] font-bold text-slate-900">{st.vacant ? "VACANT" : e.fullName}</span>
-      <span className="absolute top-[38px] right-2 left-[10px] line-clamp-2 text-[9px] leading-[12px] text-slate-700">{e.title}</span>
-      <span className="absolute bottom-[7px] left-[10px] rounded-[3px] px-1.5 py-0.5 text-[8px] font-bold text-white" style={{ background: color }}>
-        {displayLevel(orgNode.level)}
-      </span>
-      <span className="absolute bottom-[8px] left-[43px] right-2 truncate text-[8px] text-slate-500">{e.department}</span>
-      {st.temporary && <span className="absolute top-[8px] right-2 text-[8px] font-bold text-amber-900">TEMP</span>}
+      <span className="absolute inset-y-1 left-0 w-1 rounded-l-[4px]" style={{ background: color }} />
+      <span className="absolute top-[9px] right-2 left-3 line-clamp-2 text-[12px] leading-[15px] font-bold text-slate-900">{e.title || "Position not specified"}</span>
+      <span className="absolute right-2 bottom-[8px] left-3 truncate text-[11px] text-slate-700">{st.vacant ? "VACANT" : e.fullName}</span>
+      {st.temporary && <span className="absolute top-[6px] right-2 text-[8px] font-bold text-amber-900">TEMP</span>}
     </button>
   );
 }
@@ -58,7 +51,7 @@ function GroupView({ node, onOpenEmployee }: { node: LNode; onOpenEmployee: (id:
     <div className="absolute rounded-[5px] border bg-white shadow-[0_1px_2px_rgba(15,23,42,0.16)]" style={{ left: node.x, top: node.y, width: node.w, height: node.h, borderColor: color }}>
       <div className="absolute inset-x-0 top-0 h-[30px] rounded-t-[5px] bg-slate-50" />
       <span className="absolute top-[8px] left-[8px] rounded-[3px] px-1.5 py-0.5 text-[8px] font-bold text-white" style={{ background: color }}>
-        {displayLevel(members[0]?.level)}
+        {members[0]?.level ?? ""}
       </span>
       <span className="absolute top-[10px] left-[40px] text-[8.5px] font-bold text-slate-900">{members.length} positions at this level</span>
       <div className="absolute top-[36px] right-1.5 left-1.5">
@@ -161,11 +154,13 @@ export function Organogram({ layout, title, subtitle, generatedBy, onOpenEmploye
               <div className="absolute top-0 left-3 h-full bg-amber-200/80" style={{ width: 48 }} />
               {layer.index > 0 && <div className="absolute top-0 right-3 left-3 h-[2px] bg-amber-500" />}
               <div className="absolute top-1/2 left-3 flex w-12 -translate-y-1/2 flex-col items-center">
-                <span className="text-[13px] leading-none font-extrabold text-slate-900">
-                  {displayLevel(layer.level)}
-                  {layer.continuation ? " cont." : ""}
+                <span className="text-[15px] leading-none font-extrabold text-slate-900">
+                  {layer.level}
+                  {layer.continuation ? "*" : ""}
                 </span>
-                <span className="mt-0.5 text-[8px] text-slate-600">{layer.count}</span>
+                <span className="mt-1.5 grid h-6 w-6 place-items-center rounded-full text-[9px] font-bold text-white shadow-sm" style={{ background: levelColor(layer.level) }}>
+                  {layer.count}
+                </span>
               </div>
               <span className="absolute top-2.5 left-[70px] text-[8px] font-bold tracking-wide text-slate-500 uppercase">{layer.band}</span>
             </div>

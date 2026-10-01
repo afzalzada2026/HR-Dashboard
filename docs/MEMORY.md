@@ -67,6 +67,13 @@ Do not rename IDs without migrating `atoma-ui.hiddenWidgets` preferences.
 - The map has two filters: **Duty station (default)** and **Home province**; it never defaults to Kabul as a province selection.
 - Duty-station shading uses the province hosting the station; employees keep their own home province.
 
+## Org chart print rules
+
+- Cards contain only a bold position title (top) and the employee name (below) — never avatars/department text — so type stays readable when the sheet is scaled to a page.
+- Keep cards/gaps compact: shrinking the sheet has the same effect as enlarging the font.
+- Level rail shows the bold band code (L6 … L1) with a filled count circle; band height follows the tallest card (roster cards stretch their band).
+- A person without a supervisor is a valid chart root (CEO); blank identity rows render as vacant posts, never throw.
+
 ## Client-render pitfalls
 
 - Never read `localStorage`/IndexedDB during the first render of a dashboard: the server renders a different tree and React throws a hydration error that blanks the module. Load persisted state in an effect (requestAnimationFrame wrapper keeps ESLint happy).

@@ -62,8 +62,8 @@ export interface OrgBuild {
   headCandidates: Map<string, DivisionHeadCandidate[]>;
 }
 
-const normName = (s: string) => (s || "").toLowerCase().replace(/[^\p{L}\p{N} ]/gu, " ").replace(/\s+/g, " ").trim();
-const normEmail = (s: string) => (s || "").toLowerCase().trim();
+const normName = (s: unknown) => String(s ?? "").toLowerCase().replace(/[^\p{L}\p{N} ]/gu, " ").replace(/\s+/g, " ").trim();
+const normEmail = (s: unknown) => String(s ?? "").toLowerCase().trim();
 const EXEC_TOP = /\b(ceo|chief executive|president|managing director|country manager)\b/i;
 const C_SUITE = /\b(chief|cio|cmo|cco|cto|cfo|coo|chro|cso|cpo|cro|vice president|vp)\b/i;
 const HEAD = /\b(head|director|general manager|gm|managing|vice president|vp)\b/i;
@@ -73,7 +73,12 @@ export const STAFF_OFFICER = /\b(secretary|personal assistant|executive assistan
 const STOP = new Set(["and", "the", "of", "for", "division", "department", "directorate", "unit", "services", "service"]);
 
 export function employeeOrgKey(e: Employee): string {
-  return (e.employeeNo || e.email || e.hrisNo || e.fullName).trim().toLowerCase();
+  return (e.employeeNo || e.email || e.hrisNo || e.fullName || `row-${Math.random().toString(36).slice(2)}`).trim().toLowerCase();
+}
+
+/** True when the record is the top of a reporting chain (CEO or anyone without a supervisor). */
+export function isRoot(e: Employee): boolean {
+  return !e.supervisor?.trim() && !e.supervisorEmail?.trim();
 }
 
 const divTokens = (s: string) => normName(s).split(" ").filter((x) => x.length > 2 && !STOP.has(x));
@@ -93,7 +98,7 @@ function editDistance(a: string, b: string): number {
   return prev[b.length];
 }
 
-export function nameSimilarity(aRaw: string, bRaw: string): number {
+export function nameSimilarity(aRaw: unknown, bRaw: unknown): number {
   const a = normName(aRaw);
   const b = normName(bRaw);
   if (!a || !b) return 0;
@@ -105,13 +110,8 @@ export function nameSimilarity(aRaw: string, bRaw: string): number {
   return Math.max(lev, (shared / Math.max(A.size, B.size)) * 0.75 + lev * 0.25);
 }
 
-export function seniorityValue(e: Employee): number {
-  const level = canonicalOrgLevel(e.level) ?? fallbackLevel(e);
-  return 12 - LEVEL_ORDER.indexOf(level);
-}
-
 function fallbackLevel(e: Employee): OrgLevelCode {
-  const rank = e.levelRank;
+  const rank = Number(e.levelRank);
   if (rank >= 10) return "L6";
   if (rank >= 9) return "L5";
   if (rank >= 8) return "L4";
@@ -119,6 +119,11 @@ function fallbackLevel(e: Employee): OrgLevelCode {
   if (rank >= 6) return "L3";
   if (rank >= 4) return "L2";
   return "L1";
+}
+
+export function seniorityValue(e: Employee): number {
+  const level = canonicalOrgLevel(e.level) ?? fallbackLevel(e);
+  return 12 - LEVEL_ORDER.indexOf(level);
 }
 
 function better(a: OrgNode, b: OrgNode): boolean {
@@ -230,13 +235,7 @@ export interface OrgOverrides {
 
 export function loadOrgOverrides(): OrgOverrides {
   try {
-    const raw = localStorage.getItem("atoma:org-overrides");
-    if (!raw) return { heads: {}, reporting: {} };
-    const parsed = JSON.parse(raw) as Partial<OrgOverrides> | null;
-    return {
-      heads: parsed?.heads ?? {},
-      reporting: parsed?.reporting ?? {},
-    };
+    return JSON.parse(localStorage.getItem("atoma:org-overrides") || "{}") as OrgOverrides;
   } catch {
     return { heads: {}, reporting: {} };
   }

@@ -82,8 +82,8 @@ export interface OrgLayout {
   byId: Map<string, LNode>;
 }
 
-export const GAP_MAIN = 62;
-export const GROUP_CARD = { colW: 152, header: 34, row: 28, more: 18, pad: 10 };
+export const GAP_MAIN = 54;
+export const GROUP_CARD = { colW: 138, header: 32, row: 26, more: 18, pad: 10 };
 
 /** Roster cards: 2 columns up to 8 people, 3 to 24, 4 thereafter. */
 export function groupCardGrid(members: number, groupMax = 2000) {
@@ -99,6 +99,19 @@ export function groupCardGrid(members: number, groupMax = 2000) {
   };
 }
 
+/** Safe display helpers shared by screen and export renderers. */
+export function safeName(value: unknown): string {
+  return String(value ?? "").trim();
+}
+
+export function cardTexts(emp: { title?: string; fullName?: string; remarks?: string }): { title: string; name: string; vacant: boolean; temporary: boolean } {
+  const title = safeName(emp.title) || "Position not specified";
+  const name = safeName(emp.fullName);
+  const all = `${name} ${title} ${safeName(emp.remarks)}`.toLowerCase();
+  const vacant = !name || /\b(vacant|vacancy|unfilled|tbd|to be hired)\b/.test(all) || /^(unknown|vacant)$/i.test(name);
+  return { title, name: vacant ? "VACANT" : name, vacant, temporary: !vacant && /\b(temp|temporary|contract|contractor|acting|interim)\b/.test(all) };
+}
+
 export function groupCardSize(members: number, groupMax = 2000): CardSize {
   const grid = groupCardGrid(members, groupMax);
   return { w: grid.w, h: grid.h };
@@ -112,14 +125,15 @@ interface V {
 }
 
 /** Standard ATOMA card geometry and options for screen + export rendering. */
-export const ATOMA_CARD: CardSize = { w: 172, h: 66 };
+/** Compact card: bold position title on top, employee name below — keeps printed type legible. */
+export const ATOMA_CARD: CardSize = { w: 152, h: 58 };
 
 export function buildOrgLayout(roots: OrgNode[], opts?: Partial<LayoutOpts>): OrgLayout {
   return layoutOrg(roots, {
     layerOf: (n: OrgNode) => LEVEL_ORDER.indexOf(n.level),
     card: ATOMA_CARD,
     groupThreshold: 4,
-    gapCross: 18,
+    gapCross: 14,
     gapMain: GAP_MAIN,
     padding: 22,
     gutter: 84,
@@ -128,7 +142,7 @@ export function buildOrgLayout(roots: OrgNode[], opts?: Partial<LayoutOpts>): Or
 }
 
 export function layoutOrg(roots: OrgNode[], opts: LayoutOpts): OrgLayout {
-  const o = { groupThreshold: 4, groupMax: 2000, gapCross: 18, gapMain: GAP_MAIN, padding: 22, gutter: 84, ...opts };
+  const o = { groupThreshold: 4, groupMax: 2000, gapCross: 14, gapMain: GAP_MAIN, padding: 22, gutter: 84, ...opts };
   const finiteRootLevels = roots.map(o.layerOf).filter(Number.isFinite);
   const levelOffset = finiteRootLevels.length ? Math.min(...finiteRootLevels) : 0;
   const nodes: LNode[] = [];
@@ -210,7 +224,7 @@ export function layoutOrg(roots: OrgNode[], opts: LayoutOpts): OrgLayout {
       positions.set(p, (positions.get(p) ?? 0) + (n.kind === "group" ? n.members!.length : 1));
     }
     const actualPosition = [...positions.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0]?.[0] ?? Math.min(levelOffset + i, levelOffset + maxLayer);
-    const level = LEVEL_ORDER[actualPosition];
+    const level = (LEVEL_ORDER[actualPosition] ?? LEVEL_ORDER[levelOffset + i] ?? "L2") as typeof LEVEL_ORDER[number];
     const continuation = seenLevelRows.has(actualPosition);
     seenLevelRows.add(actualPosition);
     layers.push({ index: i, actualPosition, level, band: bandLabel(level), offset: y, size, count, continuation });

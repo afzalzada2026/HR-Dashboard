@@ -221,6 +221,17 @@ export async function updateLocalReport(id: number, patch: { isActive?: boolean;
   return updated;
 }
 
+/** Replaces the employee rows of a stored dataset (browser-local by design). */
+export async function saveDatasetEmployees(datasetId: string, employees: Employee[]): Promise<void> {
+  if (LOCAL_ONLY) {
+    await idbSet(dataKey(datasetId), employees);
+    const index = await readIndex();
+    await idbSet(INDEX_KEY, index.map((item) => (item.id === datasetId ? { ...item, rowCount: employees.length } : item)));
+    return;
+  }
+  throw new Error("Updating dataset rows through the server API is not enabled in this deployment.");
+}
+
 export async function deleteLocalReport(id: number): Promise<void> {
   const current = await listLocalReports();
   const existing = current.find((report) => report.id === id);
