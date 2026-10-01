@@ -19,6 +19,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/org-chart", label: "Org Chart", icon: Network, section: "Workforce", description: "Interactive organization structure" },
   { href: "/reports", label: "Executive Reports", icon: FileText, section: "Workforce", description: "Exports & scheduled reports" },
   { href: "/data", label: "Data Sources", icon: Database, section: "Administration", description: "Upload Excel / CSV & mapping" },
+  { href: "/records", label: "Employee Records", icon: Users, section: "Administration", description: "Add, edit or remove employee rows" },
   { href: "/security", label: "Security & Audit", icon: ShieldCheck, section: "Administration", description: "Roles, permissions & audit logs" },
 ];
 

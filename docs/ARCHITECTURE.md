@@ -241,6 +241,7 @@ Missing division causes a 401 in production. The API filters employee rows befor
 - `src/lib/orgtree.ts` is the reporting engine: link resolution (override → e-mail → employee number → exact name → fuzzy name → department/division/top inference), cycle repair, one scored head per division with reasons and manual overrides, scope roots and link-quality reporting.
 - `src/lib/orglayout.ts` is the landscape layout: horizontal level rows, dominant-actual-level labelling with “cont.” continuation rows, roster cards for 5+ leaf reports, centre aisles for even branch sets, lateral staff officers, and bus connectors that never cross cards.
 - `src/lib/organogram-levels.ts` owns the L6→L1 vocabulary shared by tree, layout and export.
+- `src/lib/orgprint.ts` is the print engine: `maxRowWidth(paper)` wraps rows to the paper, `buildPrintSheets()` slices rows into height-budgeted sheets (continuation captions), `buildDepartmentSheets()` produces one sheet-set per department with the division head retained, and `downloadPrintPack()` emits a multi-page vector PDF at ~1:1 physical scale (152 px card ≈ 40 mm).
 - `src/lib/org-export.ts` renders the same geometry as editable SVG, single-page vector PDF, one-page print, and a native Microsoft Visio drawing (`.vsdx` via `@klyratech/mermaid-to-visio`, with a `.vdx` XML fallback).
 
 ## 10. Afghanistan map architecture

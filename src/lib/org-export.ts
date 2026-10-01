@@ -1,7 +1,7 @@
 import { ATOMA_MARK_PATHS } from "./brand";
 import { downloadBlob } from "./format";
 import { LEVEL_ORDER, type OrgLevelCode } from "./organogram-levels";
-import { groupCardGrid, type LayerInfo, type LNode, type OrgLayout } from "./orglayout";
+import { groupCardGrid, RAIL_W, type LayerInfo, type LNode, type OrgLayout } from "./orglayout";
 import { employeeStatus, type OrgNode } from "./orgtree";
 import type { Employee } from "./types";
 
@@ -37,7 +37,7 @@ const stamp = () => {
 
 const displayLevel = (s?: string) => (s || "—").replace(/^L/i, "");
 const initials = (e: Employee) => `${e.firstName?.[0] ?? e.fullName?.[0] ?? ""}${e.lastName?.[0] ?? ""}`.toUpperCase();
-const levelColor = (level?: OrgLevelCode) => LEVEL_COLORS[(level ?? "L2") as OrgLevelCode] ?? "#64748B";
+const levelColor = (level?: string) => LEVEL_COLORS[(level ?? "L2") as OrgLevelCode] ?? "#64748B";
 
 function wrap(text: string, max = 28, lines = 2): string[] {
   const words = (text || "").split(/\s+/).filter(Boolean);
@@ -56,7 +56,7 @@ function wrap(text: string, max = 28, lines = 2): string[] {
   return out;
 }
 
-function nodeSvg(n: LNode): string {
+function nodeSvg(n: LNode, layout: OrgLayout): string {
   const node = n.node as OrgNode;
   const e = node.emp;
   const st = employeeStatus(e);
@@ -64,15 +64,16 @@ function nodeSvg(n: LNode): string {
   const fill = st.temporary ? "#FEF08A" : "#FFFFFF";
   const dash = st.vacant || n.inferred ? ` stroke-dasharray="5 4"` : "";
   const stroke = st.vacant ? "#64748B" : n.inferred ? "#F59E0B" : "#94A3B8";
-  // Position title (bold, top) then employee name beneath — maximum readable type per card.
-  const title = wrap(e.title || "Position not specified", Math.max(16, Math.floor(n.w / 8.6)), 2);
-  const startY = title.length > 1 ? n.y + 17 : n.y + 24;
+  const name = st.vacant ? "VACANT" : e.fullName;
+  // Position name is the bold headline; the employee name sits directly beneath it.
+  const titleLines = wrap(e.title, Math.max(16, Math.floor(n.w / 6.6)), 2);
+  const nameY = n.y + 20 + titleLines.length * 13;
   return `<g data-employee="${esc(e.employeeNo)}" style="cursor:pointer">
-    <rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="5" fill="${fill}" stroke="${stroke}" stroke-width="${n.inferred ? 1.8 : 1.2}"${dash}/>
-    <rect x="${n.x}" y="${n.y + 6}" width="4" height="${n.h - 12}" fill="${color}"/>
-    ${title.map((line, i) => `<text x="${n.x + n.w / 2}" y="${startY + i * 15}" text-anchor="middle" font-size="12" font-weight="700" fill="#0F172A">${esc(line)}</text>`).join("")}
-    <text x="${n.x + n.w / 2}" y="${startY + title.length * 15 + 1}" text-anchor="middle" font-size="11" fill="#334155">${esc(st.vacant ? "VACANT" : e.fullName)}</text>
-    ${st.temporary ? `<text x="${n.x + n.w - 7}" y="${n.y + 15}" text-anchor="end" font-size="8" font-weight="700" fill="#92400E">TEMP</text>` : ""}
+    <rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="5" fill="${fill}" stroke="${stroke}" stroke-width="${n.inferred ? 1.8 : 1.1}"${dash}/>
+    <rect x="${n.x}" y="${n.y}" width="${n.w}" height="5" rx="4" fill="${color}"/>
+    ${titleLines.map((line, i) => `<text x="${n.x + n.w / 2}" y="${n.y + 20 + i * 13}" text-anchor="middle" font-size="11" font-weight="700" fill="#0F172A">${esc(line)}</text>`).join("")}
+    <text x="${n.x + n.w / 2}" y="${nameY}" text-anchor="middle" font-size="10" fill="#334155">${esc(name).slice(0, 32)}</text>
+    ${st.temporary ? `<text x="${n.x + n.w - 6}" y="${n.y + 15}" text-anchor="end" font-size="8" font-weight="700" fill="#92400E">TEMP</text>` : ""}
   </g>`;
 }
 
@@ -110,23 +111,24 @@ export function buildOrgSvg(layout: OrgLayout, opts: OrgExportOpts): string {
   const chartY = headerH;
   const width = Math.max(900, layout.width);
   const height = layout.height + headerH + footerH;
+  const railX = width - RAIL_W;
   const bands = layout.layers
     .map((L: LayerInfo) => {
       const start = Math.max(0, L.offset - layout.gapMain / 2) + chartY;
       const size = L.size + layout.gapMain;
+      const cy = start + size / 2;
       return `<rect x="0" y="${start}" width="${width}" height="${size}" fill="${L.index % 2 ? "#F8FAFC" : "#FFFFFF"}"/>
-      <rect x="12" y="${start}" width="48" height="${size}" fill="#FDE68A" fill-opacity="0.9"/>
-      ${L.index > 0 ? `<line x1="12" y1="${start}" x2="${width - 12}" y2="${start}" stroke="#F8B900" stroke-width="2"/>` : ""}
-      <text x="36" y="${start + size / 2 - 8}" text-anchor="middle" font-size="15" font-weight="800" fill="#0F172A">${esc(L.level + (L.continuation ? "*" : ""))}</text>
-      <circle cx="36" cy="${start + size / 2 + 13}" r="11" fill="${LEVEL_COLORS[(L.level as OrgLevelCode) ?? "L2"]}"/>
-      <text x="36" y="${start + size / 2 + 17}" text-anchor="middle" font-size="9" font-weight="700" fill="#fff">${L.count}</text>
-      <text x="70" y="${start + 13}" font-size="8" font-weight="700" fill="#64748B">${esc(L.band)}</text>`;
+      ${L.index > 0 ? `<line x1="12" y1="${start}" x2="${railX - 8}" y2="${start}" stroke="#F8B900" stroke-width="2"/>` : ""}
+      <rect x="${railX}" y="${start}" width="${RAIL_W}" height="${size}" fill="#FDE68A" fill-opacity="0.85"/>
+      <text x="${railX + RAIL_W / 2}" y="${cy - 8}" text-anchor="middle" font-size="14" font-weight="800" fill="#0F172A">${esc(displayLevel(L.level))}${L.continuation ? " cont." : ""}</text>
+      <circle cx="${railX + RAIL_W / 2}" cy="${cy + 14}" r="11" fill="#FFFFFF" stroke="${levelColor(L.level as OrgLevelCode)}" stroke-width="1.5"/>
+      <text x="${railX + RAIL_W / 2}" y="${cy + 18}" text-anchor="middle" font-size="9" font-weight="700" fill="#0F172A">${L.count}</text>`;
     })
     .join("");
   const edges = layout.edges
     .map((e) => `<path d="${e.d}" fill="none" stroke="${e.inferred ? "#F59E0B" : "#1F2937"}" stroke-width="1.25" ${e.inferred ? `stroke-dasharray="5 4"` : ""} ${e.kind === "staff" ? `stroke-dasharray="4 3"` : ""}/>`)
     .join("");
-  const nodes = layout.nodes.map((n) => (n.kind === "group" ? groupSvg(n) : nodeSvg(n))).join("");
+  const nodes = layout.nodes.map((n) => (n.kind === "group" ? groupSvg(n) : nodeSvg(n, layout))).join("");
   const footer = opts.footer ?? "Made with \u2665 by Mohibullah Afzalzada";
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
@@ -158,29 +160,31 @@ export function downloadOrgSvg(layout: OrgLayout, opts: OrgExportOpts): void {
   downloadBlob(new Blob([buildOrgSvg(layout, opts)], { type: "image/svg+xml;charset=utf-8" }), `ATOMA_Organogram_${stamp()}.svg`);
 }
 
-/** Single-page editable vector PDF: every card, line and label stays selectable text/paths. */
+/** Single-page editable vector PDF: cards stay compact so printed names remain legible. */
 export async function downloadOrgVectorPdf(layout: OrgLayout, opts: OrgExportOpts): Promise<void> {
   const { jsPDF } = await import("jspdf");
-  const aspect = layout.width / (layout.height + 132);
-  const maxMm = 1200;
-  let targetW = maxMm;
-  let targetH = targetW / aspect;
-  if (targetH > maxMm) {
-    targetH = maxMm;
-    targetW = targetH * aspect;
-  }
-  const doc = new jsPDF({ orientation: targetW >= targetH ? "landscape" : "portrait", unit: "mm", format: [Math.max(160, targetW), Math.max(100, targetH)], compress: true });
-  const PW = doc.internal.pageSize.getWidth();
-  const PH = doc.internal.pageSize.getHeight();
-  const header = Math.min(22, PH * 0.16);
-  const footer = Math.min(18, PH * 0.13);
-  const margin = Math.min(5, PW * 0.006);
-  const scale = Math.min((PW - margin * 2) / layout.width, (PH - header - footer) / layout.height);
-  const ox = (PW - layout.width * scale) / 2;
-  const oy = header;
+  const header = 54;
+  const footer = 34;
+  const margin = 18;
+  const contentW = layout.width;
+  const contentH = layout.height + header + footer;
+  // Standard landscape sheets, largest first choice that keeps text above ~6pt.
+  const sizes: [number, number][] = [
+    [1190.55, 841.89], // A3
+    [1683.78, 1190.55], // A2
+    [2383.94, 1683.78], // A1
+    [3370.39, 2383.94], // A0
+    [841.89, 595.28], // A4 fallback
+  ];
+  const fit = (size: [number, number]) => Math.min((size[0] - margin * 2) / contentW, (size[1] - margin * 2) / contentH);
+  const page = sizes.find((size) => fit(size) >= 0.55) ?? sizes[sizes.length - 1];
+  const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: page, compress: true });
+  const scale = fit(page);
+  const ox = (page[0] - contentW * scale) / 2;
+  const oy = (page[1] - contentH * scale) / 2;
   const X = (v: number) => ox + v * scale;
-  const Y = (v: number) => oy + v * scale;
-  const mm = (v: number) => v * scale;
+  const Y = (v: number) => oy + (v + header) * scale;
+  const S = (v: number) => v * scale;
   const rgb = (hex: string): [number, number, number] => {
     const h = hex.replace("#", "").padEnd(6, "0");
     return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
@@ -189,61 +193,62 @@ export async function downloadOrgVectorPdf(layout: OrgLayout, opts: OrgExportOpt
   const strokeHex = (h: string) => doc.setDrawColor(...rgb(h));
 
   fillHex("#062B5B");
-  doc.rect(0, 0, PW, header, "F");
+  doc.rect(0, 0, page[0], header * 0.72, "F");
   fillHex("#00A8FF");
-  doc.rect(0, header - 1, PW, 1.4, "F");
-  fillHex("#FFFFFF");
-  doc.roundedRect(margin + 1, header * 0.12, header * 1.05, header * 0.68, 2, 2, "F");
-  doc.setLineWidth(Math.max(1, header * 0.08));
+  doc.rect(0, header * 0.72, page[0], 2, "F");
+  doc.setLineWidth(Math.max(1, 9 * scale));
   doc.setLineCap("round");
   for (const path of ATOMA_MARK_PATHS) {
     strokeHex(path.stroke);
     const nums = (path.d.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
     for (let i = 2; i + 1 < nums.length; i += 2) {
-      doc.line(margin + 5 + nums[i - 2] * 0.55, header * 0.2 + nums[i - 1] * 0.55, margin + 5 + nums[i] * 0.55, header * 0.2 + nums[i + 1] * 0.55);
+      doc.line(margin + 12 + nums[i - 2] * 0.62, 12 + nums[i - 1] * 0.62, margin + 12 + nums[i] * 0.62, 12 + nums[i + 1] * 0.62);
     }
   }
   doc.setFont("helvetica", "bold");
   doc.setTextColor(255, 255, 255);
-  doc.setFontSize(Math.max(8, header * 0.7));
-  doc.text(opts.title, margin + header * 1.2, header * 0.45);
+  doc.setFontSize(17);
+  doc.text(opts.title, margin + 58, 24);
   doc.setFont("helvetica", "normal");
-  doc.setTextColor(200, 232, 255);
-  doc.setFontSize(Math.max(4, header * 0.3));
-  doc.text(opts.subtitle, margin + header * 1.2, header * 0.74);
+  doc.setFontSize(9);
+  doc.setTextColor(207, 232, 255);
+  doc.text(opts.subtitle, margin + 58, 40);
+  doc.text(new Date().toLocaleString(), page[0] - margin, 24, { align: "right" });
+  doc.text(`Prepared by ${opts.generatedBy ?? "ATOMA"}`, page[0] - margin, 40, { align: "right" });
 
+  const railX = layout.width - RAIL_W;
   for (const L of layout.layers) {
     const start = Math.max(0, L.offset - layout.gapMain / 2);
     const size = L.size + layout.gapMain;
+    const cy = start + size / 2;
     fillHex(L.index % 2 ? "#F8FAFC" : "#FFFFFF");
-    doc.rect(X(0), Y(start), mm(layout.width), mm(size), "F");
-    fillHex("#FDE68A");
-    doc.rect(X(12), Y(start), mm(48), mm(size), "F");
+    doc.rect(X(0), Y(start), S(layout.width), S(size), "F");
     if (L.index > 0) {
       strokeHex("#F8B900");
-      doc.setLineWidth(Math.max(0.15, scale * 2));
-      doc.line(X(12), Y(start), X(layout.width - 12), Y(start));
+      doc.setLineWidth(Math.max(0.15, 2 * scale));
+      doc.line(X(12), Y(start), X(railX - 8), Y(start));
     }
+    fillHex("#FDE68A");
+    doc.rect(X(railX), Y(start), S(RAIL_W), S(size), "F");
     doc.setTextColor(15, 23, 42);
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(Math.max(4, mm(14)));
-    doc.text(L.level + (L.continuation ? "*" : ""), X(36), Y(start + size / 2 - mm(6)), { align: "center" });
-    const countColor = LEVEL_COLORS[(L.level as OrgLevelCode) ?? "L2"] ?? "#64748B";
-    fillHex(countColor);
-    doc.circle(X(36), Y(start + size / 2) + mm(13), mm(11), "F");
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(Math.max(3, mm(9)));
-    doc.text(String(L.count), X(36), Y(start + size / 2) + mm(16), { align: "center" });
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(Math.max(2, mm(8)));
-    doc.setTextColor(71, 85, 105);
-    doc.text(L.band, X(70), Y(start + 12));
+    doc.setFontSize(Math.max(6, 14 * scale));
+    doc.text(displayLevel(L.level) + (L.continuation ? " cont." : ""), X(railX + RAIL_W / 2), Y(cy - 8), { align: "center" });
+    fillHex("#FFFFFF");
+    strokeHex(levelColor(L.level));
+    doc.setLineWidth(Math.max(0.3, 1.5 * scale));
+    doc.circle(X(railX + RAIL_W / 2), Y(cy + 14), Math.max(3, 11 * scale), "FD");
+    doc.setTextColor(15, 23, 42);
+    doc.setFontSize(Math.max(4, 9 * scale));
+    doc.text(String(L.count), X(railX + RAIL_W / 2), Y(cy + 14) + 3 * scale, { align: "center" });
   }
 
+  strokeHex("#1F2937");
+  doc.setLineWidth(Math.max(0.1, 1.25 * scale));
   for (const edge of layout.edges) {
     strokeHex(edge.inferred ? "#F59E0B" : "#1F2937");
     doc.setLineWidth(Math.max(0.1, scale * (edge.inferred ? 1.5 : 1.25)));
-    doc.setLineDashPattern(edge.inferred ? [Math.max(0.5, mm(5)), Math.max(0.4, mm(4))] : [], 0);
+    doc.setLineDashPattern(edge.inferred ? [Math.max(0.5, 4 * scale), Math.max(0.4, 3 * scale)] : [], 0);
     for (let i = 1; i < edge.points.length; i++) {
       const [x1, y1] = edge.points[i - 1];
       const [x2, y2] = edge.points[i];
@@ -255,38 +260,38 @@ export async function downloadOrgVectorPdf(layout: OrgLayout, opts: OrgExportOpt
   for (const n of layout.nodes) {
     const x = X(n.x);
     const y = Y(n.y);
-    const w = mm(n.w);
-    const h = mm(n.h);
+    const w = S(n.w);
+    const h = S(n.h);
     if (n.kind === "group") {
       const members = n.members ?? [];
       const color = levelColor(members[0]?.level ?? "L2");
       fillHex("#FFFFFF");
       strokeHex(color);
       doc.setLineWidth(Math.max(0.1, scale));
-      doc.roundedRect(x, y, w, h, 1.5, 1.5, "FD");
+      doc.roundedRect(x, y, w, h, 2, 2, "FD");
       fillHex("#F8FAFC");
-      doc.rect(x, y, w, mm(30), "F");
+      doc.rect(x, y, w, S(28), "F");
       doc.setTextColor(15, 23, 42);
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(Math.max(2.2, mm(9)));
-      doc.text(`${members.length} positions at this level`, x + mm(40), y + mm(19));
+      doc.setFontSize(Math.max(2.2, 9 * scale));
+      doc.text(`${members.length} positions at this level`, x + S(34), y + S(18));
       const grid = groupCardGrid(members.length);
       const colW = (n.w - 12) / grid.cols;
       members.forEach((m, i) => {
-        const mx = x + mm(6 + (i % grid.cols) * colW);
-        const my = y + mm(36 + Math.floor(i / grid.cols) * 26);
+        const mx = x + S(6 + (i % grid.cols) * colW);
+        const my = y + S(32 + Math.floor(i / grid.cols) * 24);
         const st = employeeStatus(m.emp);
         fillHex(st.temporary ? "#FEF08A" : "#F8FAFC");
         strokeHex(st.vacant ? "#64748B" : "#E2E8F0");
-        doc.roundedRect(mx, my, mm(colW - 4), mm(23), 1, 1, "FD");
+        doc.roundedRect(mx, my, S(colW - 4), S(21), 1, 1, "FD");
         doc.setTextColor(15, 23, 42);
         doc.setFont("helvetica", "bold");
-        doc.setFontSize(Math.max(1.8, mm(7.2)));
-        doc.text((st.vacant ? "VACANT" : m.emp.fullName).slice(0, 25), mx + mm(5), my + mm(9));
+        doc.setFontSize(Math.max(1.8, 8 * scale));
+        doc.text(m.emp.title.slice(0, 28), mx + S(4), my + S(9), { maxWidth: S(colW - 10) });
         doc.setFont("helvetica", "normal");
-        doc.setFontSize(Math.max(1.6, mm(6.6)));
-        doc.setTextColor(100, 116, 139);
-        doc.text(m.emp.title.slice(0, 31), mx + mm(5), my + mm(18));
+        doc.setFontSize(Math.max(1.6, 7 * scale));
+        doc.setTextColor(51, 65, 85);
+        doc.text((st.vacant ? "VACANT" : m.emp.fullName).slice(0, 26), mx + S(4), my + S(17), { maxWidth: S(colW - 10) });
       });
       continue;
     }
@@ -296,59 +301,59 @@ export async function downloadOrgVectorPdf(layout: OrgLayout, opts: OrgExportOpt
     const color = levelColor(node.level);
     fillHex(st.temporary ? "#FEF08A" : "#FFFFFF");
     strokeHex(st.vacant ? "#64748B" : n.inferred ? "#F59E0B" : "#94A3B8");
-    doc.setLineWidth(Math.max(0.1, scale * (n.inferred ? 1.8 : 1.2)));
-    doc.setLineDashPattern(st.vacant || n.inferred ? [Math.max(0.4, mm(4)), Math.max(0.3, mm(3))] : [], 0);
-    doc.roundedRect(x, y, w, h, 1.5, 1.5, "FD");
+    doc.setLineWidth(Math.max(0.1, scale * (n.inferred ? 1.8 : 1.1)));
+    doc.setLineDashPattern(st.vacant || n.inferred ? [Math.max(0.4, 4 * scale), Math.max(0.3, 3 * scale)] : [], 0);
+    doc.roundedRect(x, y, w, h, 2, 2, "FD");
     doc.setLineDashPattern([], 0);
     fillHex(color);
-    doc.rect(x + mm(1), y + mm(5), mm(3), h - mm(10), "F");
-    const titleLines = doc.splitTextToSize(e.title || "Position not specified", w - mm(14)).slice(0, 2) as string[];
+    doc.rect(x, y, w, S(5), "F");
+    const titleLines = wrap(e.title, Math.max(16, Math.floor(n.w / 6.6)), 2);
     doc.setTextColor(15, 23, 42);
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(Math.max(3.4, mm(11.5)));
-    doc.text(titleLines, x + w / 2, y + (titleLines.length > 1 ? mm(16) : mm(21)), { align: "center", maxWidth: w - mm(12) });
+    doc.setFontSize(Math.max(3.2, 11 * scale));
+    titleLines.forEach((line, i) => doc.text(line, x + w / 2, y + S(20 + i * 13), { align: "center", maxWidth: w - S(8) }));
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(Math.max(3.2, mm(10.5)));
+    doc.setFontSize(Math.max(3, 10 * scale));
     doc.setTextColor(51, 65, 85);
-    doc.text(st.vacant ? "VACANT" : e.fullName, x + w / 2, y + mm(21) + titleLines.length * mm(13), { align: "center", maxWidth: w - mm(10) });
+    doc.text((st.vacant ? "VACANT" : e.fullName).slice(0, 32), x + w / 2, y + S(20 + titleLines.length * 13), { align: "center", maxWidth: w - S(8) });
     if (st.temporary) {
       doc.setFont("helvetica", "bold");
+      doc.setFontSize(Math.max(2, 8 * scale));
       doc.setTextColor(146, 64, 14);
-      doc.text("TEMP", x + w - mm(8), y + mm(14), { align: "right" });
+      doc.text("TEMP", x + w - S(6), y + S(15), { align: "right" });
     }
   }
 
-  const ly = PH - footer + 2;
-  const boxW = 5;
-  const boxH = 3.2;
-  let lx = Math.max(margin, PW / 2 - 82);
+  const ly = oy + contentH * scale - footer + 6;
+  const boxW = 9;
+  const boxH = 6;
+  let lx = Math.max(margin, page[0] / 2 - 150);
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(Math.max(3.2, footer * 0.26));
+  doc.setFontSize(Math.max(3.6, 8.5 * scale));
   doc.setTextColor(71, 85, 105);
   const legendBox = (label: string, fill: string, stroke: string, dashed = false) => {
     fillHex(fill);
     strokeHex(stroke);
-    doc.setLineDashPattern(dashed ? [1.2, 1] : [], 0);
+    doc.setLineDashPattern(dashed ? [2, 1.5] : [], 0);
     doc.rect(lx, ly, boxW, boxH, "FD");
     doc.setLineDashPattern([], 0);
-    doc.text(label, lx + boxW + 1.5, ly + boxH * 0.82);
-    lx += boxW + doc.getTextWidth(label) + 7;
+    doc.text(label, lx + boxW + 3, ly + boxH - 1);
+    lx += boxW + doc.getTextWidth(label) + 12;
   };
   legendBox("Filled post", "#FFFFFF", "#94A3B8");
   legendBox("Vacant post", "#FFFFFF", "#64748B", true);
   legendBox("Temporary / contract", "#FEF08A", "#D97706");
   strokeHex("#F59E0B");
-  doc.setLineDashPattern([1.2, 1], 0);
+  doc.setLineDashPattern([2, 1.5], 0);
   doc.line(lx, ly + boxH / 2, lx + boxW, ly + boxH / 2);
   doc.setLineDashPattern([], 0);
-  doc.text("Inferred line", lx + boxW + 1.5, ly + boxH * 0.82);
-  lx += boxW + doc.getTextWidth("Inferred line") + 7;
+  doc.text("Inferred line", lx + boxW + 3, ly + boxH - 1);
+  lx += boxW + doc.getTextWidth("Inferred line") + 12;
   legendBox("Level band", "#FDE68A", "#FDE68A");
-
-  doc.setFontSize(Math.max(4, footer * 0.34));
+  doc.setFontSize(Math.max(4, 9 * scale));
   doc.setTextColor(100, 116, 139);
   const footerText = opts.footer ?? "Made with \u2665 by Mohibullah Afzalzada";
-  doc.text(footerText, (PW - doc.getTextWidth(footerText)) / 2, PH - footer * 0.32);
+  doc.text(footerText, (page[0] - doc.getTextWidth(footerText)) / 2, page[1] - 12);
   doc.save(`ATOMA_Organogram_Vector_${stamp()}.pdf`);
 }
 

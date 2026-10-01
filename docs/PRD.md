@@ -30,13 +30,6 @@ The authoritative permission matrix is in `src/lib/rbac.ts` and documented in `R
 
 ## 4. Functional requirements
 
-### 4.0 Admin employee row editor
-
-- HR Admin can add, edit and remove rows in the active dataset from **Data Sources → Employee data editor**.
-- The form covers the canonical HR fields; age, tenure, level rank, qualification group and province are recalculated on save through the same normalizer used by imports.
-- Rows without a supervisor (CEO and other chain roots) are valid and render as chart roots; blank identities are treated as vacant posts rather than errors.
-- Changes are stored with the active dataset in the browser and reflected across every dashboard immediately.
-
 ### 4.1 Data ingestion
 
 - Drag/drop and file-browser import for `.xlsx`, `.xls`, and `.csv`.
@@ -151,7 +144,13 @@ Chart clicks cross-filter the entire application. Charts support table mode, foc
 - Vacant posts are visually supported (dotted cards) but not synthesised for now; temporary/contract staff stay highlighted in yellow.
 - Staff officers (Secretary, Personal/Executive Assistant) sit laterally beside their manager at the manager’s level, connected by a short horizontal line, exactly as in the approved chart.
 - Teams of five or more stack into balanced columns of up to three (spine + stub connectors) to keep sheets narrow; smaller teams sit in a centred row around the reporting line.
-- Organogram export: single-page vector PDF (A4→A0, no rasterisation), editable SVG, high-resolution PNG, an editable **Microsoft Visio drawing (.vdx)**, and one-page landscape print — each carrying the ATOMA mark and the printed legend (filled post, vacant post, temporary/contract, level band).
+- Position cards are print-tuned: compact boxes (138×52) containing only the **position name in bold on top** and the **employee name beneath**, so names stay legible after scaling a sheet onto a page.
+- Level labels sit on a right-hand rail with a **bold level code** (L6…L1) and a small circle showing that level’s employee count; level divider lines are flexible and rows grow taller wherever roster cards need the space.
+- A person without a supervisor (e.g. the CEO) is treated as a hierarchy root; missing supervisors are re-linked as dashed inferred lines and surfaced for review — never an error or a detached row.
+- Print-optimised output: rows wrap to the selected paper (A4/A3/A2) so type prints at its designed size; charts beyond one page become a multi-page **print pack** with continuation captions, and large divisions print as **department sheets** (division head on every sheet, that department's staff only).
+- Boxes never overlap; oversized teams split into multiple roster cards instead of one giant box.
+- Organogram export: print pack / single-page vector PDF (A4→A0), editable SVG, high-resolution PNG, an editable **Microsoft Visio drawing (.vsdx with .vdx fallback)**, and landscape print — each carrying the ATOMA mark and the printed legend (filled post, vacant post, temporary/contract, inferred line, level band).
+- Admin record management: HR Admin / HR Officer can add, edit and delete rows of the overall dataset from **Employee Records**; every module reflects the change immediately and the edit is stored with the dataset.
 - Supervisor relationships are measured against the configured hierarchy and displayed as a data-consistency percentage.
 - L3H receives head-band priority when resolving department heads.
 - Actual supervisor links are primary; bands, titles and direct-report counts resolve leaders and missing links.

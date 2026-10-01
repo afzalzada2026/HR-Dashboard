@@ -163,6 +163,9 @@ function OrgInner() {
       <div className="glass overflow-hidden rounded-2xl" data-export-expand="true">
         <Organogram
           layout={layout}
+          roots={roots}
+          divisionEmployees={division ? filtered.filter((employee) => employee.division === division) : undefined}
+          division={division || undefined}
           title={`Organization Chart · ${scopeTitle}`}
           subtitle={`L6 → L1 · ${subtitle}`}
           generatedBy={session.name}

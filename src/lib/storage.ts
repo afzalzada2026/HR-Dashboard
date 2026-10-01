@@ -16,6 +16,8 @@ export interface StorageAdapter {
   getActive(): Promise<LoadedDataset | null>;
   get(id: string): Promise<LoadedDataset | null>;
   save(p: DatasetPayload, user: { name: string; role: string }): Promise<DatasetMeta>;
+  /** Persists row-level edits/additions for a dataset (used by the admin record editor). */
+  update(meta: DatasetMeta, employees: Employee[]): Promise<void>;
   activate(id: string): Promise<void>;
   remove(id: string): Promise<void>;
 }
@@ -49,6 +51,13 @@ export const serverAdapter: StorageAdapter = {
   },
   async save(p) {
     return (await api<{ dataset: DatasetMeta }>("/api/datasets", { method: "POST", body: JSON.stringify(p) })).dataset;
+  },
+  async update(meta, employees) {
+    // Enterprise mode stores row edits as a new dataset version (auditable history).
+    await api<{ dataset: DatasetMeta }>("/api/datasets", {
+      method: "POST",
+      body: JSON.stringify({ ...meta, employees, name: meta.name, source: meta.source } satisfies DatasetPayload),
+    });
   },
   async activate(id) {
     await api(`/api/datasets/${id}`, { method: "PATCH", body: JSON.stringify({ active: true }) });
@@ -114,6 +123,12 @@ export const localAdapter: StorageAdapter = {
     for (const old of next.slice(15)) await idbDel(dataKey(old.id));
     await idbSet(INDEX_KEY, next.slice(0, 15));
     return meta;
+  },
+  async update(meta, employees) {
+    const idx = await readIndex();
+    const next = idx.map((d) => (d.id === meta.id ? { ...d, rowCount: employees.length } : d));
+    await idbSet(INDEX_KEY, next);
+    await idbSet(dataKey(meta.id), employees);
   },
   async activate(id) {
     const idx = await readIndex();
@@ -219,17 +234,6 @@ export async function updateLocalReport(id: number, patch: { isActive?: boolean;
   await idbSet(REPORTS_KEY, current.map((report) => (report.id === id ? updated : report)));
   await appendLocalAudit(patch.run ? "report.executed" : updated.isActive ? "report.enabled" : "report.paused", "reports", updated.name);
   return updated;
-}
-
-/** Replaces the employee rows of a stored dataset (browser-local by design). */
-export async function saveDatasetEmployees(datasetId: string, employees: Employee[]): Promise<void> {
-  if (LOCAL_ONLY) {
-    await idbSet(dataKey(datasetId), employees);
-    const index = await readIndex();
-    await idbSet(INDEX_KEY, index.map((item) => (item.id === datasetId ? { ...item, rowCount: employees.length } : item)));
-    return;
-  }
-  throw new Error("Updating dataset rows through the server API is not enabled in this deployment.");
 }
 
 export async function deleteLocalReport(id: number): Promise<void> {

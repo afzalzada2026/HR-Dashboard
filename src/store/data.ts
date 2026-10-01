@@ -28,6 +28,8 @@ interface DataState {
   loadDemo: (size?: number) => Promise<void>;
   importDataset: (payload: DatasetPayload) => Promise<DatasetMeta>;
   setDataset: (meta: DatasetMeta, raw: Employee[]) => void;
+  /** Applies row-level edits without resetting the user's filters. */
+  updateEmployees: (raw: Employee[]) => void;
   setFilter: <K extends keyof Filters>(key: K, value: Filters[K]) => void;
   toggleValue: (key: MultiKey, value: string) => void;
   patchFilters: (patch: Partial<Filters>) => void;
@@ -199,6 +201,19 @@ export const useDataStore = create<DataState>()((set, get) => ({
       message: "",
       version: s.version + 1,
     }));
+  },
+
+  updateEmployees: (raw) => {
+    const now = Date.now();
+    const session = useUIStore.getState().session;
+    const employees = enrichEmployees(applyRowLevelSecurity(raw, session), now);
+    const current = get();
+    set({
+      employees,
+      filtered: applyFilters(employees, current.filters),
+      now,
+      dataset: current.dataset ? { ...current.dataset, rowCount: employees.length } : null,
+    });
   },
 
   setFilter: (key, value) => {

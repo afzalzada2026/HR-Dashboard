@@ -10,12 +10,6 @@ Legend: `[x]` complete, `[ ]` backlog, `[!]` production dependency/decision.
 - [x] PostgreSQL + Drizzle schema and health endpoint.
 - [x] Browser-only IndexedDB data mode.
 
-## Admin data management
-
-- [x] HR Admin employee row editor: add / edit / delete against the active dataset.
-- [x] Recomputation of derived fields (age, tenure, level rank, qualification group, province) on save.
-- [x] Robust handling of rows with no supervisor (CEO), blank identities and duplicate names.
-
 ## Data ingestion and quality
 
 - [x] Excel/CSV drag-drop and browse.
@@ -76,6 +70,14 @@ Legend: `[x]` complete, `[ ]` backlog, `[!]` production dependency/decision.
 - [x] ATOMA chevron logo applied across the app, favicon and exports.
 - [x] Subtree-based leader selection (CEO, division and department heads) with C-suite title handling.
 - [x] Single-page vector organogram PDF (A4→A0), editable SVG, high-res PNG and one-page print.
+- [x] Print-optimised row wrapping to paper (A4/A3/A2) at designed physical type size.
+- [x] Multi-page print pack with continuation captions and per-sheet legend.
+- [x] Department print sheets for large divisions, division head retained on every sheet.
+- [x] Guaranteed non-overlapping boxes; oversized teams split into multiple roster cards.
+- [x] Print-optimised row wrapping to paper (A4/A3/A2) at designed physical type size.
+- [x] Multi-page print pack with continuation captions and per-sheet legend.
+- [x] Department print sheets for large divisions, division head retained on every sheet.
+- [x] Guaranteed non-overlapping boxes; oversized teams split into multiple roster cards.
 - [x] Visio-style balance: head on the centre line, each manager centred over their team, reports split left/right.
 - [x] Lateral staff officers (Secretary/Assistant) beside their manager.
 - [x] Team clusters: 5+ reports stack in columns of 3 with spine/stub connectors; smaller teams in a centred row.
@@ -84,6 +86,10 @@ Legend: `[x]` complete, `[ ]` backlog, `[!]` production dependency/decision.
 - [x] Reporting engine with link provenance (override/email/number/name/fuzzy/inferred), cycle repair and quality reporting.
 - [x] Scored division-head candidates with reasons and per-division manual override.
 - [x] SVG/PDF/print exports in the approved style (inferred-line legend + author credit).
+- [x] Print-tuned cards: bold position name over employee name, compact boxes for legible text.
+- [x] Right-hand level rail with bold codes and employee-count circles; flexible row heights.
+- [x] Supervisor-less rows (CEO/top) handled as hierarchy roots; missing supervisors become inferred links.
+- [x] Employee Records admin page: add/edit/delete rows in the active dataset with persistence and audit.
 - [x] Dashboard PDF: blue ATOMA band on page one only.
 - [x] Page-level ErrorBoundary and chart option isolation so no widget can blank the page.
 - [x] Footer credit: “Made with ♥ by Mohibullah Afzalzada”.
