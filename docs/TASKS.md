@@ -18,13 +18,13 @@ Legend: `[x]` complete, `[ ]` backlog, `[!]` production dependency/decision.
 - [x] In-app delete confirmation (window.confirm is blocked in preview iframes).
 - [x] Map "All duty stations" / "All provinces" selects all instead of falling back to the largest.
 
-## Final sanitation (2026-04)
+## Final sanitation (current release)
 
-- [x] Blank-safe age/tenure/date filters — imported rows with unknown values are never dropped.
-- [x] Directory empty states explain why rows are missing and clear search/filters in one click.
-- [x] Removed all `window.confirm` usage (blocked in preview iframes) in favour of in-app/two-step confirmation.
-- [x] Level board on the left in screen and all exports; level-aware denser cards for L1/L2.
-- [x] Verified: zero overlapping boxes, zero level mismatches, every print sheet populated at readable scale.
+- [x] Directory empty state shows diagnostics (rows loaded, active slicers) with one-click reset.
+- [x] Blank date/age/tenure ranges never filter; imported rows are all visible by default.
+- [x] L1/L2 level bands use higher-capacity roster cards to accommodate dense teams.
+- [x] Org chart verified: no overlaps, no level mismatches, level board on the left, print sheets at ~1:1 scale.
+- [x] Full gate: lint, route types, TypeScript, no-database build, startup/health, production audit 0.
 
 ## Data ingestion and quality
 

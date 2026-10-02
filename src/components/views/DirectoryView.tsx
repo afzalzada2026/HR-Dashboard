@@ -4,15 +4,15 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, Columns3, FileSpreadsheet, FileText, Lock, RotateCcw, Search, Users } from "lucide-react";
 import { type ReactNode, useMemo, useRef, useState } from "react";
 import { exportCSV, exportEmployeesXLSX, type ExportColumn } from "@/lib/exporters";
-import { cn, fmtDate, fmtNum, timestampSlug } from "@/lib/format";
 import { describeFilters } from "@/lib/filters";
+import { cn, fmtDate, fmtNum, timestampSlug } from "@/lib/format";
 import { can } from "@/lib/rbac";
 import { logAudit } from "@/lib/storage";
 import type { Employee } from "@/lib/types";
 import { useDataStore } from "@/store/data";
 import { useUIStore } from "@/store/ui";
 import { DataGate } from "../shell/Chrome";
-import { Avatar, Badge, Button, PageHeader, Popover } from "../ui/primitives";
+import { Avatar, Badge, Button, EmptyState, PageHeader, Popover } from "../ui/primitives";
 
 interface Col {
   key: string;
@@ -69,6 +69,9 @@ function DirectoryInner() {
   const filtered = useDataStore((s) => s.filtered);
   const total = useDataStore((s) => s.employees.length);
   const openEmployee = useUIStore((s) => s.openEmployee);
+  const clearFilters = useDataStore((s) => s.clearFilters);
+  const filters = useDataStore((s) => s.filters);
+  const dataset = useDataStore((s) => s.dataset);
   const role = useUIStore((s) => s.session.role);
   const notify = useUIStore((s) => s.notify);
   const canExport = can(role, "export_data");
@@ -78,9 +81,6 @@ function DirectoryInner() {
   const [visible, setVisible] = useState<string[]>(DEFAULT_VISIBLE);
   const [colsOpen, setColsOpen] = useState(false);
   const [pageSize, setPageSize] = useState(100);
-  const clearAllFilters = useDataStore((state) => state.clearFilters);
-  const filters = useDataStore((state) => state.filters);
-  const employees = useDataStore((state) => state.employees);
   const [page, setPage] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -255,15 +255,49 @@ function DirectoryInner() {
               })}
             </div>
             {!rows.length && (
-              <div className="py-14 text-center">
-                <p className="text-[15px] font-semibold text-fg">No employees match the current search and filters</p>
-                <p className="mx-auto mt-1 max-w-xl text-[12px] text-muted">
-                  {fmtNum(employees.length)} employees are loaded in this dataset. {describeFilters(filters).length ? <>Active: {describeFilters(filters).join(" · ")}. Rows with unknown age, tenure or dates are always retained.</> : <>Only the search box and column filters are applied.</>}
-                </p>
-                <div className="mt-4 flex flex-wrap justify-center gap-2">
-                  <Button size="sm" variant="primary" onClick={() => { setQ(""); setColFilters({}); clearAllFilters(); }}>Clear search & all filters</Button>
-                  <Button size="sm" onClick={() => { setQ(""); setColFilters({}); }}>Clear search only</Button>
-                </div>
+              <div className="p-4">
+                <EmptyState
+                  icon={<Search />}
+                  title={total ? "No employees match the current search and slicers" : "No employee rows loaded yet"}
+                  description={
+                    total
+                      ? `${fmtNum(total)} rows are loaded from “${dataset?.name ?? "the active dataset"}”, but the current search/slicers exclude all of them. Reset the slicers below or refine the search text.`
+                      : "Import an Excel/CSV file on the Data Sources page (or generate a demo workforce) and the directory fills automatically."
+                  }
+                  action={
+                    <div className="flex flex-wrap justify-center gap-2">
+                      {total > 0 && (
+                        <Button
+                          variant="primary"
+                          onClick={() => {
+                            clearFilters();
+                            setQ("");
+                            setColFilters({});
+                            setSort({ key: "fullName", dir: 1 });
+                          }}
+                        >
+                          <RotateCcw /> Reset search & all slicers
+                        </Button>
+                      )}
+                      <a href="/data" className="inline-flex h-9 items-center gap-2 rounded-xl border border-line-strong px-4 text-sm font-medium text-fg">
+                        <Search className="h-4 w-4" /> Go to import
+                      </a>
+                    </div>
+                  }
+                />
+                {total > 0 && describeFilters(filters).length > 0 && (
+                  <div className="mx-auto mt-4 max-w-2xl rounded-xl border border-line bg-surface-muted/60 p-3 text-left">
+                    <p className="text-[11px] font-semibold tracking-wider text-muted uppercase">Active slicers</p>
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {describeFilters(filters).map((item) => (
+                        <Badge key={item} tone="primary">
+                          {item}
+                        </Badge>
+                      ))}
+                    </div>
+                    <p className="mt-2 text-[11px] text-subtle">Tip: age/tenure/join-date ranges only filter when filled — leaving them blank keeps every row.</p>
+                  </div>
+                )}
               </div>
             )}
           </div>

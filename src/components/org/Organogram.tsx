@@ -159,13 +159,13 @@ export function Organogram({ layout, roots, divisionEmployees, division, title, 
             const height = layer.size + layout.gapMain;
             return (
               <div key={`${layer.level}-${layer.index}`} className="absolute" style={{ left: 0, top, width: layout.width, height, background: layer.index % 2 ? "#F8FAFC" : "#FFFFFF" }}>
-                {layer.index > 0 && <div className="absolute top-0 right-3 h-[2px] bg-amber-500" style={{ left: RAIL_W + 12 }} />}
+                {layer.index > 0 && <div className="absolute top-0 right-3 left-3 h-[2px] bg-amber-500" />}
               </div>
             );
           })}
 
-          {/* level board on the LEFT: bold code + employee count circle */}
-          <div className="absolute top-0 left-0 border-r-2 border-amber-500/70 bg-amber-200/85" style={{ width: RAIL_W, height: layout.height }}>
+          {/* right-hand level rail: bold code + employee count circle */}
+          <div className="absolute top-0 bg-amber-200/85" style={{ right: 0, width: RAIL_W, height: layout.height }}>
             {layout.layers.map((layer: LayerInfo) => {
               const top = Math.max(0, layer.offset - layout.gapMain / 2);
               const height = layer.size + layout.gapMain;

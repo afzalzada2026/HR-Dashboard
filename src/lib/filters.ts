@@ -56,15 +56,15 @@ export function compile(f: Filters, skip?: MultiKey): Pred[] {
     preds.push((e) => set.has(get(e)));
   }
   const jf = toTs(f.joinFrom), jt = toTs(f.joinTo, true), df = toTs(f.dobFrom), dt = toTs(f.dobTo, true);
-  if (jf !== null) preds.push((e) => e.joinTs === null || e.joinTs >= jf);
-  if (jt !== null) preds.push((e) => e.joinTs === null || e.joinTs <= jt);
-  if (df !== null) preds.push((e) => e.dobTs === null || e.dobTs >= df);
-  if (dt !== null) preds.push((e) => e.dobTs === null || e.dobTs <= dt);
+  if (jf !== null) preds.push((e) => e.joinTs !== null && e.joinTs >= jf);
+  if (jt !== null) preds.push((e) => e.joinTs !== null && e.joinTs <= jt);
+  if (df !== null) preds.push((e) => e.dobTs !== null && e.dobTs >= df);
+  if (dt !== null) preds.push((e) => e.dobTs !== null && e.dobTs <= dt);
   const { ageMin, ageMax, tenureMin, tenureMax } = f;
-  if (ageMin !== null) preds.push((e) => e.age === null || Math.floor(e.age) >= ageMin);
-  if (ageMax !== null) preds.push((e) => e.age === null || Math.floor(e.age) <= ageMax);
-  if (tenureMin !== null) preds.push((e) => e.tenure === null || e.tenure >= tenureMin);
-  if (tenureMax !== null) preds.push((e) => e.tenure === null || e.tenure <= tenureMax);
+  if (ageMin !== null) preds.push((e) => e.age !== null && Math.floor(e.age) >= ageMin);
+  if (ageMax !== null) preds.push((e) => e.age !== null && Math.floor(e.age) <= ageMax);
+  if (tenureMin !== null) preds.push((e) => e.tenure !== null && e.tenure >= tenureMin);
+  if (tenureMax !== null) preds.push((e) => e.tenure !== null && e.tenure <= tenureMax);
   return preds;
 }
 

@@ -32,8 +32,6 @@ export interface LayoutOpts {
   gutter?: number;
   /** Wrap a level row when it would exceed this width (print optimisation). */
   maxRowWidth?: number;
-  /** Per-level card sizing (lower bands can use denser cards to fit more staff). */
-  cardFor?: (node: OrgNode) => CardSize;
 }
 
 export interface LNode {
@@ -150,7 +148,7 @@ export function layoutOrg(roots: OrgNode[], opts: LayoutOpts): OrgLayout {
   const finiteRootLevels = roots.map(o.layerOf).filter(Number.isFinite);
   const levelOffset = finiteRootLevels.length ? Math.min(...finiteRootLevels) : 0;
   const nodes: LNode[] = [];
-  const sizeOf = (ln: LNode): CardSize => (ln.kind === "group" ? groupCardSize(ln.members!.length, o.groupMax) : (ln.node && o.cardFor?.(ln.node)) || o.card);
+  const sizeOf = (ln: LNode): CardSize => (ln.kind === "group" ? groupCardSize(ln.members!.length, o.groupMax) : o.card);
   // Bands are ABSOLUTE: every person sits in their own level band (an L4 is never drawn in L6).
   const normalizedLevel = (n: OrgNode) => Math.max(0, o.layerOf(n));
 
@@ -192,11 +190,13 @@ export function layoutOrg(roots: OrgNode[], opts: LayoutOpts): OrgLayout {
     }
     for (const [L, list] of [...byLayer.entries()].sort((a, b) => a[0] - b[0])) {
       if (list.length > o.groupThreshold) {
-        // Split oversized teams into several roster cards so no card grows beyond
-        // a printable height (a 2,000-person roster is never one giant box).
-        for (let start = 0; start < list.length; start += o.groupMax) {
-          const chunkMembers = list.slice(start, start + o.groupMax);
-          const gs = groupCardSize(chunkMembers.length, o.groupMax);
+        // Lower bands (L2/L1) carry most of the headcount: give their roster cards
+        // more capacity so the level band can accommodate staff and stay printable.
+        const levelName = LEVEL_ORDER[L];
+        const capacity = levelName === "L1" || levelName === "L2" ? Math.max(o.groupMax, 48) : o.groupMax;
+        for (let start = 0; start < list.length; start += capacity) {
+          const chunkMembers = list.slice(start, start + capacity);
+          const gs = groupCardSize(chunkMembers.length, capacity);
           const gl: LNode = { id: `g:${n.id}:${L}:${start}`, kind: "group", members: chunkMembers, layer: L, parent: ln.id, x: 0, y: 0, w: gs.w, h: gs.h, inferred: false, groupKey: `${groupKey}/g:${L}` };
           nodes.push(gl);
           kids.push({ layer: L, order: order++, v: { ln: gl, children: [], extent: gs.w, center: 0 } });

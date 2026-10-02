@@ -1,6 +1,6 @@
 import { ATOMA_MARK_PATHS } from "./brand";
 import { downloadBlob } from "./format";
-import { buildOrgLayout, groupCardGrid, type CardSize, type LNode, type OrgLayout } from "./orglayout";
+import { buildOrgLayout, groupCardGrid, type LNode, type OrgLayout } from "./orglayout";
 import type { OrgExportOpts } from "./org-export";
 import { LEVEL_COLORS } from "./org-export";
 import { buildOrgTree, employeeStatus, scopeRoots, type OrgNode } from "./orgtree";
@@ -67,14 +67,9 @@ export function maxRowWidth(paper: Paper): number {
   return 84 + 22 + perRow * 152 + Math.max(0, perRow - 1) * 21 + 30;
 }
 
-/** L1/L2 hold most of the workforce: denser (still readable) cards keep more staff per row. */
-export function printCardFor(level?: string): CardSize {
-  return level === "L1" || level === "L2" ? { w: 132, h: 52 } : { w: 152, h: 58 };
-}
-
 /** Layout optimised for paper: level rows wrap so nothing shrinks below readable size. */
 export function buildPrintLayout(roots: OrgNode[], paper: Paper): OrgLayout {
-  return buildOrgLayout(roots, { maxRowWidth: maxRowWidth(paper), cardFor: (node) => printCardFor(node.level) });
+  return buildOrgLayout(roots, { maxRowWidth: maxRowWidth(paper) });
 }
 
 /** Crops a layout to a run of rows, rebasing coordinates so every sheet starts at the origin. */
@@ -142,15 +137,13 @@ function cardSvg(n: LNode): string {
   const fill = st.temporary ? "#FEF08A" : "#FFFFFF";
   const stroke = st.vacant ? "#64748B" : n.inferred ? "#F59E0B" : "#94A3B8";
   const title = String(node.emp.title || "Position not specified");
-  const compact = n.h <= 54;
-  const maxChars = compact ? 23 : 26;
-  const titleLines = title.length > maxChars ? [title.slice(0, maxChars), title.slice(maxChars, maxChars * 2)] : [title];
-  const startY = n.y + (titleLines.length > 1 ? (compact ? 15 : 17) : compact ? 20 : 23);
+  const titleLines = title.length > 26 ? [title.slice(0, 26), title.slice(26, 52)] : [title];
+  const startY = n.y + (titleLines.length > 1 ? 17 : 23);
   return `<g>
     <rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="4" fill="${fill}" stroke="${stroke}" stroke-width="${n.inferred ? 1.8 : 1.1}" ${st.vacant || n.inferred ? 'stroke-dasharray="5 4"' : ""}/>
     <rect x="${n.x}" y="${n.y + 5}" width="3.5" height="${n.h - 10}" fill="${color}"/>
-    ${titleLines.map((line, i) => `<text x="${n.x + n.w / 2}" y="${startY + i * 14}" text-anchor="middle" font-size="${compact ? 11 : 11.5}" font-weight="700" fill="#0F172A">${esc(line)}</text>`).join("")}
-    <text x="${n.x + n.w / 2}" y="${startY + titleLines.length * 14 + 1}" text-anchor="middle" font-size="${compact ? 10 : 10.5}" fill="#334155">${esc(st.vacant ? "VACANT" : node.emp.fullName)}</text>
+    ${titleLines.map((line, i) => `<text x="${n.x + n.w / 2}" y="${startY + i * 14}" text-anchor="middle" font-size="11.5" font-weight="700" fill="#0F172A">${esc(line)}</text>`).join("")}
+    <text x="${n.x + n.w / 2}" y="${startY + titleLines.length * 14 + 1}" text-anchor="middle" font-size="10.5" fill="#334155">${esc(st.vacant ? "VACANT" : node.emp.fullName)}</text>
     ${st.temporary ? `<text x="${n.x + n.w - 6}" y="${n.y + 13}" text-anchor="end" font-size="7.5" font-weight="700" fill="#92400E">TEMP</text>` : ""}
   </g>`;
 }
