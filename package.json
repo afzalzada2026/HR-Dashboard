@@ -16,6 +16,7 @@
     "dotenv": "17.3.1",
     "drizzle-orm": "0.45.2",
     "echarts": "^6.1.0",
+    "fake-indexeddb": "^6.2.2",
     "html2canvas-pro": "^2.4.5",
     "idb-keyval": "^6.3.0",
     "jspdf": "^4.2.1",
