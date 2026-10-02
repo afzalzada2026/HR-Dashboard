@@ -71,7 +71,7 @@ function GroupView({ node, onOpenEmployee }: { node: LNode; onOpenEmployee: (id:
 }
 
 /**
- * Interactive ATOMA organogram: landscape level rows, left-hand level board with
+ * Interactive ATOMA organogram: landscape level rows, right-hand level rail with
  * employee-count circles, roster cards for large teams and bus connectors.
  */
 export function Organogram({ layout, roots, divisionEmployees, division, title, subtitle, generatedBy, onOpenEmployee }: { layout: OrgLayout; roots: OrgNode[]; divisionEmployees?: Employee[]; division?: string; title: string; subtitle: string; generatedBy?: string; onOpenEmployee: (id: string | null) => void }) {
@@ -164,16 +164,16 @@ export function Organogram({ layout, roots, divisionEmployees, division, title, 
             );
           })}
 
-          {/* level board (left): bold L6→L1 code + employee count circle */}
-          <div className="absolute top-0 left-0 border-r border-slate-300 bg-amber-200/85" style={{ width: RAIL_W, height: layout.height }}>
+          {/* right-hand level rail: bold code + employee count circle */}
+          <div className="absolute top-0 bg-amber-200/85" style={{ right: 0, width: RAIL_W, height: layout.height }}>
             {layout.layers.map((layer: LayerInfo) => {
               const top = Math.max(0, layer.offset - layout.gapMain / 2);
               const height = layer.size + layout.gapMain;
               return (
-                <div key={`rail-${layer.level}-${layer.index}`} className="absolute inset-x-0 flex flex-col items-center justify-center border-b-2 border-amber-500" style={{ top, height }}>
-                  <span className="text-[15px] leading-none font-extrabold text-slate-900">
+                <div key={`rail-${layer.level}-${layer.index}`} className="absolute inset-x-0 flex flex-col items-center justify-center" style={{ top, height }}>
+                  <span className="text-[14px] leading-none font-extrabold text-slate-900">
                     {layer.level}
-                    {layer.continuation ? "*" : ""}
+                    {layer.continuation ? " cont." : ""}
                   </span>
                   <span className="mt-2 grid h-[22px] w-[22px] place-items-center rounded-full border-2 bg-white text-[9px] font-bold text-slate-900" style={{ borderColor: levelColor(layer.level) }}>
                     {layer.count}
