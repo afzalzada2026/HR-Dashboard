@@ -148,7 +148,8 @@ export function layoutOrg(roots: OrgNode[], opts: LayoutOpts): OrgLayout {
   const finiteRootLevels = roots.map(o.layerOf).filter(Number.isFinite);
   const levelOffset = finiteRootLevels.length ? Math.min(...finiteRootLevels) : 0;
   const nodes: LNode[] = [];
-  const sizeOf = (ln: LNode): CardSize => (ln.kind === "group" ? groupCardSize(ln.members!.length, o.groupMax) : o.card);
+  // The node's own dimensions are authoritative (roster capacity differs by level band).
+  const sizeOf = (ln: LNode): CardSize => ({ w: ln.w, h: ln.h });
   // Bands are ABSOLUTE: every person sits in their own level band (an L4 is never drawn in L6).
   const normalizedLevel = (n: OrgNode) => Math.max(0, o.layerOf(n));
 
@@ -226,8 +227,7 @@ export function layoutOrg(roots: OrgNode[], opts: LayoutOpts): OrgLayout {
       x += k.extent + o.gapCross;
     });
     v.center = v.children.length ? (v.children[0].center + v.children[v.children.length - 1].center) / 2 : start + v.extent / 2;
-    const s = sizeOf(v.ln);
-    v.ln.x = v.center - s.w / 2;
+    v.ln.x = v.center; // n.x is a card CENTRE everywhere in the pipeline
     if (v.ln.kind === "staff") {
       const parent = v.ln.parent ? nodes.find((n) => n.id === v.ln.parent) : undefined;
       if (parent) v.ln.x = parent.x + parent.w + 26;
@@ -243,11 +243,11 @@ export function layoutOrg(roots: OrgNode[], opts: LayoutOpts): OrgLayout {
   // ── 3. rows: one row per level, wrapped into continuation rows when too wide ─
   const rowOf = new Map<string, number>();
   const rowNodes: LNode[][] = [];
-  const rowMeta: { level: string; actualPosition: number; continuation: boolean; groups: number }[] = [];
+  const rowMeta: { level: string; actualPosition: number; continuation: boolean }[] = [];
   const rowsByLevel = new Map<number, LNode[][]>();
-
   const levelNodes = new Map<number, LNode[]>();
   for (const n of nodes) levelNodes.set(n.layer, [...(levelNodes.get(n.layer) ?? []), n]);
+
   for (const level of [...levelNodes.keys()].sort((a, b) => a - b)) {
     const inLevel = (levelNodes.get(level) ?? []).sort((a, b) => a.x - b.x);
     const groups = new Map<string, LNode[]>();
@@ -272,90 +272,97 @@ export function layoutOrg(roots: OrgNode[], opts: LayoutOpts): OrgLayout {
     rowsByLevel.set(level, chunks);
   }
 
-  // ── 4. assign row indices and y offsets; re-pack x inside each row ──────────
   let rowCursor = 0;
   for (const level of [...rowsByLevel.keys()].sort((a, b) => a - b)) {
     const chunks = rowsByLevel.get(level)!;
     chunks.forEach((chunk, chunkIndex) => {
-      const levelCode = LEVEL_ORDER[level] ?? "L2";
+      const levelCode = (LEVEL_ORDER[level] ?? "L2") as typeof LEVEL_ORDER[number];
       const size = Math.max(o.card.h, ...chunk.map((n) => sizeOf(n).h));
       const rowIndex = rowNodes.length;
       rowNodes.push(chunk);
-      rowMeta.push({ level: levelCode, actualPosition: level, continuation: chunkIndex > 0, groups: new Set(chunk.map((n) => n.groupKey)).size });
+      rowMeta.push({ level: levelCode, actualPosition: level, continuation: chunkIndex > 0 });
       for (const n of chunk) {
         rowOf.set(n.id, rowIndex);
         n.layer = rowIndex;
+        n.y = rowCursor + o.padding;
       }
-      // Re-pack this row tightly, keeping siblings/rosters grouped.
-      const rowGroups = new Map<string, LNode[]>();
-      for (const n of chunk) rowGroups.set(n.groupKey, [...(rowGroups.get(n.groupKey) ?? []), n]);
-      const ordered = [...rowGroups.values()].sort((a, b) => a[0].x - b[0].x);
-      let x = o.padding + o.gutter;
-      for (const group of ordered) {
-        const groupWidth = group.reduce((a, n) => a + n.w, 0) + Math.max(0, group.length - 1) * o.gapCross;
-        let gx = x;
-        for (const n of group) {
-          n.x = gx;
-          n.y = rowCursor + o.padding;
-          gx += n.w + o.gapCross;
+      // Rows that fit keep their tidy x positions: every manager stays centred over
+      // the span of its team (top at the centre, reports balanced to both sides).
+      // Only rows that genuinely wrap into a "cont." row are re-packed left-to-right.
+      if (chunks.length > 1) {
+        const rowGroups = new Map<string, LNode[]>();
+        for (const n of chunk) rowGroups.set(n.groupKey, [...(rowGroups.get(n.groupKey) ?? []), n]);
+        const ordered = [...rowGroups.values()].sort((a, b) => Math.min(...a.map((n) => n.x)) - Math.min(...b.map((n) => n.x)));
+        let x = o.padding + o.gutter;
+        for (const group of ordered) {
+          const groupWidth = group.reduce((a, n) => a + n.w, 0) + Math.max(0, group.length - 1) * o.gapCross;
+          let gx = x;
+          for (const n of group) {
+            n.x = gx + n.w / 2;
+            gx += n.w + o.gapCross;
+          }
+          x += groupWidth + o.gapCross * 1.5;
         }
-        x += groupWidth + o.gapCross * 1.5;
       }
-      // Guarantee a minimum gap inside the row (no overlaps, ever).
-      const rowSorted = [...chunk].sort((a, b) => a.x - b.x);
+      const sorted = [...chunk].sort((a, b) => a.x - b.x);
       let rightEdge = -Infinity;
-      for (const n of rowSorted) {
-        const w = sizeOf(n).w;
-        if (n.x < rightEdge + 8) n.x = rightEdge + 8;
-        rightEdge = n.x + w;
+      for (const n of sorted) {
+        const half = sizeOf(n).w / 2;
+        if (n.x - half < rightEdge + 10) n.x = rightEdge + 10 + half;
+        rightEdge = n.x + half;
       }
       rowCursor += size + o.gapMain;
     });
   }
 
-  const layers: LayerInfo[] = rowNodes.map((chunk, index) => ({
-    index,
-    actualPosition: rowMeta[index].actualPosition,
-    level: rowMeta[index].level,
-    band: bandLabel(rowMeta[index].level as OrgLevelCode),
-    offset: index === 0 ? 0 : (rowNodes.slice(0, index).reduce((a, _, i) => a + Math.max(o.card.h, ...rowNodes[i].map((n) => sizeOf(n).h)) + o.gapMain, 0)),
-    size: Math.max(o.card.h, ...chunk.map((n) => sizeOf(n).h)),
-    count: chunk.reduce((a, n) => a + (n.kind === "group" ? n.members!.length : 1), 0),
-    continuation: rowMeta[index].continuation,
-  }));
-
+  const layers: LayerInfo[] = rowNodes.map((chunk, index) => {
+    const level = rowMeta[index];
+    const size = Math.max(o.card.h, ...chunk.map((n) => sizeOf(n).h));
+    const offset = rowNodes.slice(0, index).reduce((total, _row, i) => total + Math.max(o.card.h, ...rowNodes[i].map((n) => sizeOf(n).h)) + o.gapMain, 0);
+    return {
+      index,
+      actualPosition: level.actualPosition,
+      level: level.level,
+      band: bandLabel(level.level as OrgLevelCode),
+      offset,
+      size,
+      count: chunk.reduce((a, n) => a + (n.kind === "group" ? n.members!.length : 1), 0),
+      continuation: level.continuation,
+    };
+  });
   for (const n of nodes) {
     const row = layers[rowOf.get(n.id) ?? 0];
     if (row) n.y = row.offset + o.padding;
   }
-
-  // ── 5. overlap repair across the whole sheet ────────────────────────────────
+  // Final per-row repair so nothing can overlap after staff placement.
   for (const row of rowNodes) {
     const sorted = [...row].sort((a, b) => a.x - b.x);
-    let rightEdge = -Infinity;
+    let edge = -Infinity;
     for (const n of sorted) {
-      const w = sizeOf(n).w;
-      if (n.x < rightEdge + 8) n.x = rightEdge + 8;
-      rightEdge = n.x + w;
+      const half = sizeOf(n).w / 2;
+      if (n.x - half < edge + 10) n.x = edge + 10 + half;
+      edge = n.x + half;
     }
   }
 
-  // ── 6. connectors: bus between rows, spine fallback when a path is blocked ──
   const byId = new Map(nodes.map((n) => [n.id, n]));
-  const blocks = (x: number, y1: number, y2: number, except: Set<string>) => {
+  const blocksPath = (x: number, y1: number, y2: number, except: Set<string>) => {
     const lo = Math.min(y1, y2);
     const hi = Math.max(y1, y2);
     for (const n of nodes) {
       if (except.has(n.id)) continue;
       const s = sizeOf(n);
-      if (Math.abs(n.x - x) > s.w / 2 - 3) continue;
-      if (n.y < hi && n.y + s.h > lo) return true;
+      if (n.x - s.w / 2 <= x && x <= n.x + s.w / 2 && n.y < hi && n.y + s.h > lo) return true;
     }
     return false;
   };
+
+  // Orthogonal connectors: horizontal runs travel in the clear channels between
+  // rows and vertical runs in the gutters between columns, so reporting lines stay
+  // readable and never cut through a card.
   const edges: LEdge[] = [];
   const pushEdge = (kind: LEdge["kind"], from: string, to: string, inferred: boolean, points: [number, number][]) =>
-    edges.push({ id: `${from}->${to}`, from, to, inferred, kind, points, d: points.map((p, i) => `${i ? "L" : "M"} ${p[0]} ${p[1]}`).join(" ") });
+    edges.push({ id: `${from}->${to}`, from, to, inferred, kind, points, d: points.map((pt, i) => `${i ? "L" : "M"} ${pt[0]} ${pt[1]}`).join(" ") });
 
   for (const n of nodes) {
     if (!n.parent) continue;
@@ -364,47 +371,41 @@ export function layoutOrg(roots: OrgNode[], opts: LayoutOpts): OrgLayout {
     const ps = sizeOf(p);
     const ns = sizeOf(n);
     const inferred = n.inferred;
-    if (n.kind === "staff") {
-      const yMid = p.y + ps.h / 2;
-      pushEdge("staff", p.id, n.id, inferred, [
-        [p.x + ps.w, yMid],
-        [n.x, yMid],
-      ]);
-      continue;
-    }
     const x1 = p.x + ps.w / 2;
     const x2 = n.x + ns.w / 2;
     const y1 = p.y + ps.h;
     const y2 = n.y;
-    const bus = y1 + Math.max(12, (y2 - y1) / 2);
+    const childRow = layers[rowOf.get(n.id) ?? 0];
+    const parentRow = layers[rowOf.get(p.id) ?? 0];
     const except = new Set([p.id, n.id]);
-    const clear = !blocks(x1, y1, bus, except) && !blocks(x2, bus, y2, except);
-    if (clear) {
-      pushEdge("bus", p.id, n.id, inferred, [
-        [x1, y1],
-        [x1, bus],
-        [x2, bus],
-        [x2, y2],
-      ]);
-    } else {
-      const spine = o.padding + o.gutter - 18;
-      const channel = y2 - o.gapMain / 2;
-      pushEdge("spine", p.id, n.id, inferred, [
-        [x1, y1],
-        [x1, y1 + 12],
-        [spine, y1 + 12],
-        [spine, channel],
-        [x2, channel],
-        [x2, y2],
-      ]);
-    }
+    const belowParent = parentRow ? parentRow.offset + parentRow.size + o.gapMain / 2 : y1 + 14;
+    const startChannel = Math.max(y1 + 8, belowParent);
+    // Channel beside the child row: above it when the child sits lower, below it when a
+    // data anomaly reverses the bands. Both channels are guaranteed free of cards.
+    const childChannel = childRow
+      ? childRow.index >= (parentRow?.index ?? 0)
+        ? Math.min(childRow.offset - 6, Math.max(startChannel + 6, childRow.offset - o.gapMain / 2))
+        : childRow.offset + childRow.size + o.gapMain / 2
+      : y2;
+    const laneRight = n.x + ns.w / 2 + 14;
+    const laneLeft = n.x - ns.w / 2 - 14;
+    const clearSpine = o.padding + 10;
+    const lane = [laneRight, laneLeft, clearSpine].find((candidate) => !blocksPath(candidate, startChannel, childChannel, except)) ?? clearSpine;
+    pushEdge(parentRow && childRow && childRow.index === parentRow.index + 1 ? "bus" : "spine", p.id, n.id, inferred, [
+      [x1, y1],
+      [x1, startChannel],
+      [lane, startChannel],
+      [lane, childChannel],
+      [x2, childChannel],
+      [x2, y2],
+    ]);
   }
 
   let width = 0;
   let height = 0;
   for (const n of nodes) {
     const s = sizeOf(n);
-    width = Math.max(width, n.x + s.w);
+    width = Math.max(width, n.x + s.w / 2);
     height = Math.max(height, n.y + s.h);
   }
   const wrapped = layers.some((l) => l.continuation);
