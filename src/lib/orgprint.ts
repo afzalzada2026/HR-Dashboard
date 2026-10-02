@@ -177,18 +177,17 @@ export function buildSheetSvg(sheet: PrintSheet, opts: OrgExportOpts): string {
   const footerH = 56;
   const width = Math.max(900, layout.width + 120);
   const height = layout.height + headerH + footerH;
-  const railX = 12;
-  const railW = 54;
+  const railX = 12; // level board on the LEFT, as in the approved organogram
   const bands = layout.layers
     .map((L) => {
       const start = Math.max(0, L.offset - layout.gapMain / 2);
       const size = L.size + layout.gapMain;
       return `<rect x="0" y="${start + headerH}" width="${width}" height="${size}" fill="${L.index % 2 ? "#F8FAFC" : "#FFFFFF"}"/>
-      ${L.index > 0 ? `<line x1="${railX + railW + 6}" y1="${start + headerH}" x2="${width - 12}" y2="${start + headerH}" stroke="#F8B900" stroke-width="2"/>` : ""}
-      <rect x="${railX}" y="${start + headerH}" width="${railW}" height="${size}" fill="#FDE68A" fill-opacity=".92"/>
-      <text x="${railX + railW / 2}" y="${start + headerH + size / 2 - 8}" text-anchor="middle" font-size="15" font-weight="800" fill="#0F172A">${esc(L.level)}${L.continuation ? "*" : ""}</text>
-      <circle cx="${railX + railW / 2}" cy="${start + headerH + size / 2 + 13}" r="11" fill="${levelColor(L.level)}"/>
-      <text x="${railX + railW / 2}" y="${start + headerH + size / 2 + 17}" text-anchor="middle" font-size="9" font-weight="700" fill="#fff">${L.count}</text>`;
+      ${L.index > 0 ? `<line x1="${railX + 58}" y1="${start + headerH}" x2="${width - 14}" y2="${start + headerH}" stroke="#F8B900" stroke-width="2"/>` : ""}
+      <rect x="${railX}" y="${start + headerH}" width="54" height="${size}" fill="#FDE68A" fill-opacity=".92"/>
+      <text x="${railX + 27}" y="${start + headerH + size / 2 - 8}" text-anchor="middle" font-size="15" font-weight="800" fill="#0F172A">${esc(L.level)}${L.continuation ? "*" : ""}</text>
+      <circle cx="${railX + 27}" cy="${start + headerH + size / 2 + 13}" r="11" fill="${levelColor(L.level)}"/>
+      <text x="${railX + 27}" y="${start + headerH + size / 2 + 17}" text-anchor="middle" font-size="9" font-weight="700" fill="#fff">${L.count}</text>`;
     })
     .join("");
   const edges = layout.edges
@@ -269,7 +268,7 @@ export async function downloadPrintPack(sheets: PrintSheet[], opts: OrgExportOpt
 
     // right-hand level rail (matches the approved drawing)
     const railW = 46;
-    const railX = 12;
+    const railX = 0;
     for (const L of layout.layers) {
       const start = Math.max(0, L.offset - layout.gapMain / 2);
       const size = L.size + layout.gapMain;

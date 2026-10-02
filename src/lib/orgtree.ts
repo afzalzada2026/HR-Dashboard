@@ -231,15 +231,11 @@ export interface OrgOverrides {
 export function loadOrgOverrides(): OrgOverrides {
   try {
     const raw = JSON.parse(localStorage.getItem("atoma:org-overrides") || "{}") as Partial<OrgOverrides> | null;
-    // Always return a complete shape: a partial/older blob must never crash the chart.
+    // Older/partial payloads must never produce undefined maps — that crashed the chart.
     return { heads: raw?.heads ?? {}, reporting: raw?.reporting ?? {} };
   } catch {
     return { heads: {}, reporting: {} };
   }
-}
-
-function normalizeOverrides(overrides?: Partial<OrgOverrides>): OrgOverrides {
-  return { heads: overrides?.heads ?? {}, reporting: overrides?.reporting ?? {} };
 }
 
 export function saveOrgOverrides(next: OrgOverrides): void {
@@ -250,8 +246,7 @@ export function saveOrgOverrides(next: OrgOverrides): void {
   }
 }
 
-export function buildOrgTree(data: Employee[], overridesIn?: Partial<OrgOverrides>): OrgBuild {
-  const overrides = normalizeOverrides(overridesIn);
+export function buildOrgTree(data: Employee[], overrides: OrgOverrides = { heads: {}, reporting: {} }): OrgBuild {
   const nodes: OrgNode[] = data.map((emp, i) => ({ id: `n${i}`, emp, parentId: null, children: [], depth: 0, total: 1, sen: seniorityValue(emp), link: "root", level: canonicalOrgLevel(emp.level) ?? fallbackLevel(emp) }));
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const byEmail = new Map<string, OrgNode>();

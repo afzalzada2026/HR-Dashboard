@@ -2,8 +2,8 @@
 
 import { Activity, ArrowUpRight, Building, GitBranch, Globe2, Info, Percent, Repeat, Scale, Target, TrendingUp, UserMinus, UserPlus, Users } from "lucide-react";
 import { type ReactNode, useMemo } from "react";
-import { groupStats, layerDistribution, memo, spanDistribution, strategicMetrics, yearlyHires } from "@/lib/analytics";
-import { cn, fmtDate, fmtNum, fmtPct } from "@/lib/format";
+import { computeKpis, groupStats, layerDistribution, memo, spanDistribution, strategicMetrics, yearlyHires } from "@/lib/analytics";
+import { cn, fmtNum, fmtPct } from "@/lib/format";
 import { generateInsights, insightBox } from "@/lib/insights";
 import { useDataStore } from "@/store/data";
 import { ChartCard } from "../charts/ChartCard";
@@ -11,6 +11,7 @@ import { DashboardCustomizer, HiddenDashboardState, type DashboardWidget, useDas
 import { barOption, comboYearOption, gaugesOption, histogramOption, radarOption } from "../charts/options";
 import { useChartTokens } from "../charts/tokens";
 import { DataGate } from "../shell/Chrome";
+import type { Employee } from "@/lib/types";
 import { Badge, Card, CardTitle, PageHeader, ProgressBar, Tooltip } from "../ui/primitives";
 import { InsightBox } from "./InsightBox";
 
@@ -28,8 +29,6 @@ const ANALYTICS_WIDGETS: DashboardWidget[] = [
   { id: "section-gauges", label: "Diversity & retention gauges", group: "Intelligence", essential: true },
   { id: "section-signals", label: "Key strategic signals", group: "Intelligence" },
   { id: "section-scorecard", label: "Division scorecard", group: "Organization", essential: true },
-  { id: "section-exited", label: "Exited employees", group: "Workforce status", essential: true },
-  { id: "section-promoted", label: "Promoted employees", group: "Workforce status", essential: true },
   { id: "visual-growth", label: "Headcount growth by year", group: "Organization" },
   { id: "visual-radar", label: "Division capability radar", group: "Organization" },
   { id: "visual-span", label: "Span of control distribution", group: "Organization" },
@@ -117,49 +116,6 @@ function Scorecard() {
   );
 }
 
-function StatusSection({ kind, employees }: { kind: "exited" | "promoted"; employees: ReturnType<typeof useDataStore.getState>["employees"] }) {
-  const rows = useMemo(() => (kind === "exited" ? employees.filter((e) => e.status === "Separated") : employees.filter((e) => e.promoted)), [kind, employees]);
-  return (
-    <Card className="animate-fade-up">
-      <CardTitle
-        icon={kind === "exited" ? <UserMinus /> : <Percent />}
-        title={kind === "exited" ? "Exited employees" : "Promoted employees"}
-        subtitle={kind === "exited" ? "Sourced from Employment Status (or exit wording in Remarks) — kept out of the active workforce" : "Sourced from the Promoted field (or promotion wording in Remarks)"}
-        actions={<Badge tone={kind === "exited" ? "warning" : "success"}>{fmtNum(rows.length)} of {fmtNum(employees.length)}</Badge>}
-      />
-      {rows.length === 0 ? (
-        <p className="text-sm text-muted">No records flagged yet. Use the employee data editor or an Employment Status / Promoted column in your file.</p>
-      ) : (
-        <div className="max-h-[300px] overflow-y-auto rounded-xl border border-line">
-          <table className="w-full text-left text-[12px]">
-            <thead className="sticky top-0 bg-surface-muted text-[10px] tracking-wider text-muted uppercase">
-              <tr>
-                <th className="px-3 py-2 font-semibold">Employee</th>
-                <th className="px-3 py-2 font-semibold">Position</th>
-                <th className="px-3 py-2 font-semibold">Division</th>
-                <th className="px-3 py-2 font-semibold">Joined</th>
-                {kind === "exited" ? <th className="px-3 py-2 font-semibold">Reason / remarks</th> : <th className="px-3 py-2 font-semibold">Level</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.slice(0, 100).map((e) => (
-                <tr key={e.id} className="border-t border-line hover:bg-surface-muted/60">
-                  <td className="px-3 py-1.5 font-medium text-fg">{e.fullName}</td>
-                  <td className="max-w-[190px] truncate px-3 py-1.5 text-muted">{e.title}</td>
-                  <td className="max-w-[150px] truncate px-3 py-1.5 text-muted">{e.division}</td>
-                  <td className="px-3 py-1.5 text-muted">{fmtDate(e.joinDate)}</td>
-                  {kind === "exited" ? <td className="max-w-[220px] truncate px-3 py-1.5 text-muted">{e.remarks || "—"}</td> : <td className="px-3 py-1.5"><Badge tone="primary">{e.level || "—"}</Badge></td>}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {rows.length > 100 && <p className="px-3 py-2 text-[11px] text-subtle">Showing the first 100 of {fmtNum(rows.length)}.</p>}
-        </div>
-      )}
-    </Card>
-  );
-}
-
 function AnalyticsInner() {
   const filtered = useDataStore((s) => s.filtered);
   const now = useDataStore((s) => s.now);
@@ -187,6 +143,20 @@ function AnalyticsInner() {
     { id: "metric-reporting", icon: <Activity />, label: "Average Reporting Line", value: `${s.avgReportingLine.toFixed(1)} levels`, context: `${s.maxLayers} management layers in total`, status: st(s.maxLayers <= 7, s.maxLayers <= 9), formula: "Average depth of each employee in the supervisor hierarchy (1 = top)." },
   ];
 
+  const kpis = useMemo(() => computeKpis(filtered, now, now), [filtered, now]);
+  const movement = useMemo(() => {
+    const rank = (list: Employee[]) => {
+      const map = new Map<string, number>();
+      for (const e of list) map.set(e.division, (map.get(e.division) ?? 0) + 1);
+      return [...map.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count).slice(0, 5);
+    };
+    return {
+      exited: filtered.filter((e) => e.status === "Separated"),
+      promoted: filtered.filter((e) => e.promoted),
+      exitedByDivision: rank(filtered.filter((e) => e.status === "Separated")),
+      promotedByDivision: rank(filtered.filter((e) => e.promoted)),
+    };
+  }, [filtered]);
   const gauges = useMemo(() => gaugesOption([
     { name: "Gender diversity", value: s.genderDiversityIndex, color: t.female },
     { name: "Retention", value: s.retentionRate, color: t.success },
@@ -248,12 +218,6 @@ function AnalyticsInner() {
         </div>
       )}
       {layout.visible("section-scorecard") && <div className="mt-4"><Scorecard /></div>}
-      {layout.visibleCount(["section-exited", "section-promoted"]) > 0 && (
-        <div className="mt-4 grid gap-4 xl:grid-cols-2">
-          {layout.visible("section-exited") && <StatusSection kind="exited" employees={filtered} />}
-          {layout.visible("section-promoted") && <StatusSection kind="promoted" employees={filtered} />}
-        </div>
-      )}
       {layout.visibleCount(["visual-growth", "visual-radar", "visual-span", "visual-layers"]) > 0 && (
         <div className="mt-4 grid grid-flow-row-dense gap-4 xl:grid-cols-2">
           {layout.visible("visual-growth") && <ChartCard title="Headcount Growth by Year" subtitle="Annual hires vs year-end headcount (10 years)" option={yearOpt} height={300} table={{ columns: ["Year", "Hires", "Headcount"], rows: years.labels.map((l, i) => [l, years.hires[i], years.headcount[i]]) }} />}
@@ -262,6 +226,55 @@ function AnalyticsInner() {
           {layout.visible("visual-layers") && <ChartCard title="Management Layers" subtitle="Employees at each reporting layer (1 = top)" option={layerOpt} height={280} />}
         </div>
       )}
+      <Card className="animate-fade-up mt-4">
+        <CardTitle icon={<UserMinus />} title="Workforce movement — exits & promotions" subtitle="Kept separate from active headcount so every dashboard stays accurate" />
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="rounded-xl border border-line p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[11px] font-semibold tracking-wider text-danger uppercase">Exited employees</p>
+                <p className="mt-1 text-3xl font-bold text-fg tabular-nums">{fmtNum(kpis.exited)}</p>
+              </div>
+              <Badge tone="danger">{fmtPct((kpis.exited / Math.max(1, kpis.total)) * 100)} of records</Badge>
+            </div>
+            <p className="mt-2 text-[11.5px] text-muted">Active headcount is {fmtNum(kpis.active)} — exits are excluded from the 20 headline KPIs unless you filter Employment Status = Exited.</p>
+            <div className="mt-3 space-y-1.5">
+              {movement.exitedByDivision.map((row) => (
+                <div key={row.name} className="flex items-center gap-2">
+                  <span className="w-40 truncate text-[11.5px] text-fg">{row.name}</span>
+                  <span className="h-2 flex-1 overflow-hidden rounded-full bg-surface-muted">
+                    <span className="block h-full rounded-full bg-danger" style={{ width: `${Math.min(100, (row.count / Math.max(1, movement.exited.length)) * 100)}%` }} />
+                  </span>
+                  <span className="w-8 text-right text-[11.5px] font-semibold text-fg tabular-nums">{row.count}</span>
+                </div>
+              ))}
+              {!movement.exitedByDivision.length && <p className="text-[11.5px] text-subtle">No exits recorded in this selection.</p>}
+            </div>
+          </div>
+          <div className="rounded-xl border border-line p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[11px] font-semibold tracking-wider text-success uppercase">Promoted employees</p>
+                <p className="mt-1 text-3xl font-bold text-fg tabular-nums">{fmtNum(kpis.promoted)}</p>
+              </div>
+              <Badge tone="success">{fmtPct((kpis.promoted / Math.max(1, kpis.total)) * 100)} of workforce</Badge>
+            </div>
+            <p className="mt-2 text-[11.5px] text-muted">Promotions are read from the promotion record or remarks; use Promotion Record = Promoted to inspect them in any view.</p>
+            <div className="mt-3 space-y-1.5">
+              {movement.promotedByDivision.map((row) => (
+                <div key={row.name} className="flex items-center gap-2">
+                  <span className="w-40 truncate text-[11.5px] text-fg">{row.name}</span>
+                  <span className="h-2 flex-1 overflow-hidden rounded-full bg-surface-muted">
+                    <span className="block h-full rounded-full bg-success" style={{ width: `${Math.min(100, (row.count / Math.max(1, movement.promoted.length)) * 100)}%` }} />
+                  </span>
+                  <span className="w-8 text-right text-[11.5px] font-semibold text-fg tabular-nums">{row.count}</span>
+                </div>
+              ))}
+              {!movement.promotedByDivision.length && <p className="text-[11.5px] text-subtle">No promotions recorded in this selection.</p>}
+            </div>
+          </div>
+        </div>
+      </Card>
     </>
   );
 }

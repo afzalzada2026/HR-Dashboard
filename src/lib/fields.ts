@@ -39,9 +39,7 @@ export const FIELD_DEFS: FieldDef[] = [
   { key: "email", label: "Email ID", group: "Contact", kind: "text", synonyms: ["email id", "email", "e mail", "email address", "work email", "official email", "office email", "mail"] },
   { key: "tazkira", label: "Tazkira Number", group: "Personal", kind: "text", synonyms: ["tazkira number", "tazkira", "tazkira no", "tazkera", "national id", "nic", "id card", "e tazkira", "national id number"] },
   { key: "bloodGroup", label: "Blood Group", group: "Personal", kind: "text", synonyms: ["blood group", "blood type", "blood", "bg"] },
-  { key: "employmentStatus", label: "Employment Status", group: "Employment", kind: "text", synonyms: ["employment status", "employee status", "status", "active status", "service status", "employment state", "work status"] },
-  { key: "promotionFlag", label: "Promoted", group: "Employment", kind: "text", synonyms: ["promoted", "promotion", "promotion flag", "promotion status", "promotion date", "date of promotion", "was promoted"] },
-  { key: "remarks", label: "Remarks", group: "Employment", kind: "text", synonyms: ["remarks", "remark", "notes", "comments", "comment", "note"] },
+  { key: "remarks", label: "Remarks", group: "Employment", kind: "text", synonyms: ["remarks", "remark", "notes", "comments", "comment", "note", "status"] },
 ];
 
 export const FIELD_LABEL = Object.fromEntries(FIELD_DEFS.map((d) => [d.key, d.label])) as Record<FieldKey, string>;

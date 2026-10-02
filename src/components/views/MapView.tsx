@@ -97,8 +97,7 @@ function MapInner() {
   const [dimension, setDimension] = useState<Dimension>("station");
   const [stationsOn, setStationsOn] = useState(true);
   const [labels, setLabels] = useState(false);
-  /** null = untouched (default to the top item); "" = explicit "All"; otherwise the focused item. */
-  const [focus, setFocus] = useState<string | null | "all">(null);
+  const [focus, setFocus] = useState<string | null>(null);
 
   const base = useMemo(() => applyFilters(employees, { ...filters, province: [], dutyStation: [] }), [employees, filters]);
   const coverage = useMemo(() => validateEmployeeMapCoverage(base.map((employee) => employee.province)), [base]);
@@ -108,10 +107,10 @@ function MapInner() {
   const stationsRanked = useMemo(() => countBy(base, (e) => e.dutyStation).filter((s) => s.name !== "Unspecified"), [base]);
   const provinceList = useMemo(() => provincesRanked.map((p) => p.name), [provincesRanked]);
 
-  const station =
-    focus === "all" ? null : focus && stationsRanked.some((s) => s.name === focus) ? focus : focus === null && dimension === "station" ? (stationsRanked[0]?.name ?? null) : null;
-  const province =
-    focus === "all" ? null : focus && provinceList.includes(focus) ? focus : focus === null && dimension === "province" ? (provincesRanked[0]?.name ?? null) : null;
+  // focus === "" means the user explicitly chose "All"; focus === null means default to the leader.
+  const explicit = (candidate: string | null, valid: boolean, fallback: string | null) => (candidate === "" ? null : candidate && valid ? candidate : fallback);
+  const station = dimension === "station" ? explicit(focus, !!focus && stationsRanked.some((s) => s.name === focus), stationsRanked[0]?.name ?? null) : null;
+  const province = dimension === "province" ? explicit(focus, !!focus && provinceList.includes(focus), provincesRanked[0]?.name ?? null) : null;
 
   const scope = useMemo(
     () => (dimension === "station" && station ? base.filter((e) => e.dutyStation === station) : dimension === "province" && province ? base.filter((e) => e.province === province) : base),
@@ -205,7 +204,7 @@ function MapInner() {
               onFocus={() => setDimension("station")}
               onChange={(event) => {
                 setDimension("station");
-                setFocus(event.target.value || "all");
+                setFocus(event.target.value);
               }}
               aria-label="Filter by duty station"
             >
@@ -225,7 +224,7 @@ function MapInner() {
               onFocus={() => setDimension("province")}
               onChange={(event) => {
                 setDimension("province");
-                setFocus(event.target.value || "all");
+                setFocus(event.target.value);
               }}
               aria-label="Filter by home province"
             >

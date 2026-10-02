@@ -51,9 +51,7 @@ export type FieldKey =
   | "email"
   | "tazkira"
   | "bloodGroup"
-  | "remarks"
-  | "employmentStatus"
-  | "promotionFlag";
+  | "remarks";
 
 export type QualificationGroup = "PhD" | "Master" | "Bachelor" | "Diploma" | "High School" | "Other";
 
@@ -95,6 +93,7 @@ export interface Employee {
   bloodGroup: string;
   remarks: string;
   status: "Active" | "Separated";
+  /** True when the record indicates a promotion (remarks or source column). */
   promoted: boolean;
   isManager: boolean;
   directReports: number;
@@ -114,7 +113,9 @@ export type MultiKey =
   | "bloodGroup"
   | "region"
   | "province"
-  | "dutyStation";
+  | "dutyStation"
+  | "status"
+  | "promoted";
 
 export interface Filters extends Record<MultiKey, string[]> {
   joinFrom: string;

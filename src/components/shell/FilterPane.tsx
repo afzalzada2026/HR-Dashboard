@@ -1,6 +1,6 @@
 "use client";
 
-import { Briefcase, Building2, CalendarRange, ChevronDown, Droplet, Flag, Globe2, GraduationCap, Heart, Layers, MapPin, Map as MapIcon, RotateCcw, SlidersHorizontal, UserCog, Users, X } from "lucide-react";
+import { Briefcase, Building2, CalendarRange, ChevronDown, Droplet, Flag, Globe2, GraduationCap, Heart, Layers, MapPin, Map as MapIcon, RotateCcw, SlidersHorizontal, TrendingUp, UserCheck, UserCog, Users, X } from "lucide-react";
 import { type ReactNode, useMemo, useState } from "react";
 import { activeFilterCount, availableOptions, FILTER_LABELS, type Option } from "@/lib/filters";
 import { cn, fmtNum } from "@/lib/format";
@@ -14,11 +14,12 @@ const ICONS: Record<MultiKey, ReactNode> = {
   division: <Building2 />, department: <Layers />, title: <Briefcase />, level: <SlidersHorizontal />, supervisor: <UserCog />,
   gender: <Users />, nationality: <Flag />, maritalStatus: <Heart />, qualification: <GraduationCap />, expatLocal: <Globe2 />, bloodGroup: <Droplet />,
   region: <MapIcon />, province: <MapPin />, dutyStation: <MapPin />,
+  status: <UserCheck />, promoted: <TrendingUp />,
 };
 
 const GROUPS: { title: string; keys: MultiKey[] }[] = [
   { title: "Organization", keys: ["division", "department", "title", "level", "supervisor"] },
-  { title: "Employee", keys: ["gender", "nationality", "maritalStatus", "qualification", "expatLocal", "bloodGroup"] },
+  { title: "Employee", keys: ["gender", "nationality", "maritalStatus", "qualification", "expatLocal", "bloodGroup", "status", "promoted"] },
   { title: "Location", keys: ["region", "province", "dutyStation"] },
 ];
 

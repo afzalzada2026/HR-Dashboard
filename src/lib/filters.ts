@@ -3,12 +3,12 @@ import type { Employee, Filters, MultiKey } from "./types";
 export const EMPTY_FILTERS: Filters = {
   division: [], department: [], title: [], level: [], supervisor: [],
   gender: [], nationality: [], maritalStatus: [], qualification: [], expatLocal: [], bloodGroup: [],
-  region: [], province: [], dutyStation: [],
+  region: [], province: [], dutyStation: [], status: [], promoted: [],
   joinFrom: "", joinTo: "", dobFrom: "", dobTo: "",
   ageMin: null, ageMax: null, tenureMin: null, tenureMax: null,
 };
 
-export const MULTI_KEYS: MultiKey[] = ["division", "department", "title", "level", "supervisor", "gender", "nationality", "maritalStatus", "qualification", "expatLocal", "bloodGroup", "region", "province", "dutyStation"];
+export const MULTI_KEYS: MultiKey[] = ["division", "department", "title", "level", "supervisor", "gender", "nationality", "maritalStatus", "qualification", "expatLocal", "bloodGroup", "region", "province", "dutyStation", "status", "promoted"];
 
 export const HIERARCHY: MultiKey[] = ["division", "department", "title"];
 
@@ -16,6 +16,7 @@ export const FILTER_LABELS: Record<MultiKey, string> = {
   division: "Division", department: "Department", title: "Title", level: "Actual Level", supervisor: "Supervisor",
   gender: "Gender", nationality: "Nationality", maritalStatus: "Marital Status", qualification: "Qualification",
   expatLocal: "Expat / Local", bloodGroup: "Blood Group", region: "Region", province: "Province", dutyStation: "Duty Station",
+  status: "Employment Status", promoted: "Promotion Record",
 };
 
 export const ACCESSOR: Record<MultiKey, (e: Employee) => string> = {
@@ -33,6 +34,8 @@ export const ACCESSOR: Record<MultiKey, (e: Employee) => string> = {
   region: (e) => e.region,
   province: (e) => e.province,
   dutyStation: (e) => e.dutyStation,
+  status: (e) => (e.status === "Separated" ? "Exited" : "Active"),
+  promoted: (e) => (e.promoted ? "Promoted" : "No promotion record"),
 };
 
 type Pred = (e: Employee) => boolean;

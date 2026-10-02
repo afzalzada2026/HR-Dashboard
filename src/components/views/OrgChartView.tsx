@@ -31,18 +31,18 @@ function OrgInner() {
 
   const divisions = useMemo(() => [...new Set(filtered.map((e) => e.division).filter(Boolean))].sort(), [filtered]);
   const departments = useMemo(() => (division ? [...new Set(filtered.filter((e) => e.division === division).map((e) => e.department).filter(Boolean))].sort() : []), [filtered, division]);
-  const candidates = useMemo(() => (division ? rankDivisionHeadCandidates(filtered, division, overrides.heads[division]) : []), [filtered, division, overrides]);
+  const candidates = useMemo(() => (division ? rankDivisionHeadCandidates(filtered, division, overrides.heads?.[division]) : []), [filtered, division, overrides]);
   const selectedHead = build.divisionHeads.get(division);
 
   const setHead = (key: string) => {
-    const next: OrgOverrides = { ...overrides, heads: { ...overrides.heads, [division]: key } };
+    const next: OrgOverrides = { ...overrides, heads: { ...(overrides.heads ?? {}), [division]: key }, reporting: overrides.reporting ?? {} };
     saveOrgOverrides(next);
     setOverrides(next);
   };
   const resetHead = () => {
-    const heads = { ...overrides.heads };
+    const heads = { ...(overrides.heads ?? {}) };
     delete heads[division];
-    const next: OrgOverrides = { ...overrides, heads };
+    const next: OrgOverrides = { ...overrides, heads, reporting: overrides.reporting ?? {} };
     saveOrgOverrides(next);
     setOverrides(next);
   };
@@ -132,7 +132,7 @@ function OrgInner() {
             title={`Division head — ${division}`}
             subtitle={`Currently: ${selectedHead?.emp.fullName ?? "unresolved"} · choose a different head if the reporting data is incomplete`}
             actions={
-              overrides.heads[division] ? (
+              overrides.heads?.[division] ? (
                 <Button size="sm" variant="ghost" onClick={resetHead}>
                   <RotateCcw /> Reset to auto
                 </Button>

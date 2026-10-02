@@ -68,11 +68,14 @@ export interface Kpis {
   bachelorPlus: number;
   masterPlus: number;
   phd: number;
+  active: number;
+  exited: number;
+  promoted: number;
 }
 
 export function computeKpis(emps: Employee[], asOf: number, now: number): Kpis {
   let male = 0, female = 0, local = 0, expat = 0, married = 0, single = 0;
-  let ageSum = 0, ageN = 0, tenSum = 0, tenN = 0, jy = 0, jm = 0, bach = 0, mast = 0, phd = 0;
+  let ageSum = 0, ageN = 0, tenSum = 0, tenN = 0, jy = 0, jm = 0, bach = 0, mast = 0, phd = 0, exited = 0, promoted = 0;
   const divs = new Set<string>(), depts = new Set<string>(), stations = new Set<string>(), nats = new Set<string>();
   const sup = new Map<string, number>();
   const d = new Date(asOf);
@@ -80,6 +83,8 @@ export function computeKpis(emps: Employee[], asOf: number, now: number): Kpis {
   const mo = d.getUTCMonth();
   const shift = (now - asOf) / YEAR_MS;
   for (const e of emps) {
+    if (e.status === "Separated") exited++;
+    if (e.promoted) promoted++;
     if (e.gender === "Male") male++;
     else if (e.gender === "Female") female++;
     if (e.expatLocal === "Local") local++;
@@ -126,6 +131,9 @@ export function computeKpis(emps: Employee[], asOf: number, now: number): Kpis {
     supervisors: sup.size,
     joinedThisYear: jy, joinedThisMonth: jm,
     bachelorPlus: bach, masterPlus: mast, phd,
+    active: total - exited,
+    exited,
+    promoted,
   };
 }
 

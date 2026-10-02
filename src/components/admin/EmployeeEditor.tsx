@@ -17,7 +17,6 @@ const LEVELS = [...LEVEL_ORDER];
 const GENDERS = ["", "Male", "Female", "Unspecified"];
 const MARITAL = ["", "Married", "Single", "Divorced", "Widowed", "Separated", "Other"];
 const EXAPT = ["", "Local", "Expat", "Unspecified"];
-const EMPLOYMENT = ["Active", "Separated"];
 
 function blank(): Draft {
   return {
@@ -83,6 +82,7 @@ export function EmployeeEditor() {
   const [page, setPage] = useState(0);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<Employee | null>(null);
   const size = 25;
 
   const rows = useMemo(() => {
@@ -116,7 +116,8 @@ export function EmployeeEditor() {
       } as Employee;
       const list = draft.__new ? [...employees, next] : employees.map((e) => (e.id === next.id ? next : e));
       updateEmployees(list);
-      if (dataset) await getAdapter(mode).update(dataset, list);
+      const activeDataset = dataset;
+      if (activeDataset) await getAdapter(mode).update(activeDataset, list);
       await appendLocalAudit(draft.__new ? "employee.created" : "employee.updated", "data", `${next.fullName} · ${next.employeeNo}`);
       notify("success", draft.__new ? "Employee added" : "Employee updated", next.fullName);
       setDraft(null);
@@ -127,13 +128,14 @@ export function EmployeeEditor() {
     }
   };
 
-  const remove = async (employee: Employee) => {
-    if (!window.confirm(`Delete ${employee.fullName}? This cannot be undone.`)) return;
+  const confirmDelete = async (employee: Employee) => {
+    setPendingDelete(null);
     setBusy(true);
     try {
       const list = employees.filter((e) => e.id !== employee.id);
       updateEmployees(list);
-      if (dataset) await getAdapter(mode).update(dataset, list);
+      const activeDataset = dataset;
+      if (activeDataset) await getAdapter(mode).update(activeDataset, list);
       await appendLocalAudit("employee.deleted", "data", `${employee.fullName} · ${employee.employeeNo}`);
       notify("info", "Employee deleted", employee.fullName);
     } finally {
@@ -203,7 +205,7 @@ export function EmployeeEditor() {
                       <Button size="icon-sm" variant="ghost" onClick={() => setDraft({ ...e })} aria-label={`Edit ${e.fullName}`}>
                         <Pencil />
                       </Button>
-                      <Button size="icon-sm" variant="ghost" onClick={() => void remove(e)} aria-label={`Delete ${e.fullName}`} className="hover:text-danger">
+                      <Button size="icon-sm" variant="ghost" onClick={() => setPendingDelete(e)} aria-label={`Delete ${e.fullName}`} className="hover:text-danger">
                         <Trash2 />
                       </Button>
                     </div>
@@ -272,14 +274,32 @@ export function EmployeeEditor() {
             <Field label="Remarks" value={draft.remarks ?? ""} onChange={(v) => set({ remarks: v })} placeholder="e.g. Temporary contract" />
             <label className="flex items-center gap-2 self-end pb-2 text-[12px] text-fg">
               <input type="checkbox" className="accent-[#00A8FF]" checked={draft.status === "Separated"} onChange={(e) => set({ status: e.target.checked ? "Separated" : "Active" })} />
-              Exited / separated employee
-            </label>
-            <label className="flex items-center gap-2 self-end pb-2 text-[12px] text-fg">
-              <input type="checkbox" className="accent-[#00A8FF]" checked={!!draft.promoted} onChange={(e) => set({ promoted: e.target.checked })} />
-              Promoted employee
+              Mark as separated / inactive
             </label>
           </div>
         )}
+      </Modal>
+      <Modal
+        open={!!pendingDelete}
+        onClose={() => setPendingDelete(null)}
+        title="Delete employee record?"
+        subtitle="This removes the row from the active dataset stored in this browser"
+        size="sm"
+        footer={
+          <>
+            <Button onClick={() => setPendingDelete(null)}>Cancel</Button>
+            <Button
+              variant="danger"
+              onClick={() => pendingDelete && void confirmDelete(pendingDelete)}
+            >
+              <Trash2 /> Delete {pendingDelete?.fullName}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-muted">
+          {pendingDelete?.fullName} ({pendingDelete?.employeeNo}) will be removed from the active dataset. Dashboards, the organisation chart and the Afghanistan map are recalculated immediately.
+        </p>
       </Modal>
     </Card>
   );

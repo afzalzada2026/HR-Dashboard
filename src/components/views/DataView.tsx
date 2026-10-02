@@ -16,7 +16,6 @@ import { getAdapter } from "@/lib/storage";
 import type { DatasetMeta, FieldKey, StorageMode } from "@/lib/types";
 import { useDataStore } from "@/store/data";
 import { useUIStore } from "@/store/ui";
-import { EmployeeEditor } from "../admin/EmployeeEditor";
 import { Badge, Button, Card, CardTitle, EmptyState, PageHeader, ProgressBar, Segmented, Spinner } from "../ui/primitives";
 
 interface Parsed {
@@ -505,7 +504,6 @@ export default function DataView() {
         <div className="space-y-4 xl:col-span-2">
           <Uploader onImported={() => setRefresh((r) => r + 1)} />
           <RecentFiles refreshKey={refresh} />
-          <EmployeeEditor />
         </div>
         <div className="space-y-4">
           <Card className="animate-fade-up">

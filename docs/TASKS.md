@@ -10,6 +10,14 @@ Legend: `[x]` complete, `[ ]` backlog, `[!]` production dependency/decision.
 - [x] PostgreSQL + Drizzle schema and health endpoint.
 - [x] Browser-only IndexedDB data mode.
 
+## Reporting accuracy & usability
+
+- [x] Exited employees and promoted employees as first-class dimensions (slicers, KPI cards, movement section, directory columns).
+- [x] Canonical organogram: absolute L6→L1 bands (no cross-band misplacement), level board on the left, adaptive roster cards, orthogonal connectors, balanced subtrees.
+- [x] Org chart crash fix for supervisors-less roots (CEO) and partial local override payloads.
+- [x] In-app delete confirmation (window.confirm is blocked in preview iframes).
+- [x] Map "All duty stations" / "All provinces" selects all instead of falling back to the largest.
+
 ## Data ingestion and quality
 
 - [x] Excel/CSV drag-drop and browse.

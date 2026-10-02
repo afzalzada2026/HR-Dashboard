@@ -149,13 +149,12 @@ export function layoutOrg(roots: OrgNode[], opts: LayoutOpts): OrgLayout {
   const levelOffset = finiteRootLevels.length ? Math.min(...finiteRootLevels) : 0;
   const nodes: LNode[] = [];
   const sizeOf = (ln: LNode): CardSize => (ln.kind === "group" ? groupCardSize(ln.members!.length, o.groupMax) : o.card);
-  // Canonical model: each person sits in their own level band. A report whose band is not
-  // below its manager (data anomaly) still stays in its own band; connectors handle direction.
-  const normalizedLevel = (n: OrgNode, _parentLayer: number) => Math.max(0, o.layerOf(n) - levelOffset);
+  // Bands are ABSOLUTE: every person sits in their own level band (an L4 is never drawn in L6).
+  const normalizedLevel = (n: OrgNode) => Math.max(0, o.layerOf(n));
 
   // ── 1. build the placed tree, assigning every node a level band ─────────────
-  const build = (n: OrgNode, parent: LNode | null, parentLayer: number, groupKey: string): V => {
-    const layer = normalizedLevel(n, parentLayer);
+  const build = (n: OrgNode, parent: LNode | null, groupKey: string): V => {
+    const layer = normalizedLevel(n);
     const ln: LNode = {
       id: n.id,
       kind: n.staff ? "staff" : "node",
@@ -175,18 +174,18 @@ export function layoutOrg(roots: OrgNode[], opts: LayoutOpts): OrgLayout {
     let order = 0;
 
     for (const staffNode of n.children.filter((c) => c.staff)) {
-      const sl: LNode = { id: staffNode.id, kind: "staff", node: staffNode, layer, parent: ln.id, x: 0, y: 0, w: o.card.w, h: o.card.h, inferred: staffNode.link.startsWith("inferred"), groupKey };
+      const sl: LNode = { id: staffNode.id, kind: "staff", node: staffNode, layer: normalizedLevel(staffNode), parent: ln.id, x: 0, y: 0, w: o.card.w, h: o.card.h, inferred: staffNode.link.startsWith("inferred"), groupKey };
       nodes.push(sl);
       kids.push({ layer, order: order++, v: { ln: sl, children: [], extent: 0, center: 0 } });
     }
 
     const reports = n.children.filter((c) => !c.staff);
     const hasNested = (c: OrgNode) => c.children.some((g) => !g.staff);
-    for (const child of reports.filter(hasNested)) kids.push({ layer: normalizedLevel(child, layer), order: order++, v: build(child, ln, layer, `${groupKey}/${child.id}`) });
+    for (const child of reports.filter(hasNested)) kids.push({ layer: normalizedLevel(child), order: order++, v: build(child, ln, `${groupKey}/${child.id}`) });
 
     const byLayer = new Map<number, OrgNode[]>();
     for (const child of reports.filter((c) => !hasNested(c))) {
-      const L = normalizedLevel(child, layer);
+      const L = normalizedLevel(child);
       byLayer.set(L, [...(byLayer.get(L) ?? []), child]);
     }
     for (const [L, list] of [...byLayer.entries()].sort((a, b) => a[0] - b[0])) {
@@ -201,7 +200,7 @@ export function layoutOrg(roots: OrgNode[], opts: LayoutOpts): OrgLayout {
           kids.push({ layer: L, order: order++, v: { ln: gl, children: [], extent: gs.w, center: 0 } });
         }
       } else {
-        for (const child of list) kids.push({ layer: L, order: order++, v: build(child, ln, layer, `${groupKey}/${child.id}`) });
+        for (const child of list) kids.push({ layer: L, order: order++, v: build(child, ln, `${groupKey}/${child.id}`) });
       }
     }
     kids.sort((a, b) => a.layer - b.layer || a.order - b.order);
@@ -212,7 +211,7 @@ export function layoutOrg(roots: OrgNode[], opts: LayoutOpts): OrgLayout {
     return v;
   };
 
-  const forest = roots.map((r) => build(r, null, -1, r.id));
+  const forest = roots.map((r) => build(r, null, r.id));
 
   // ── 2. tidy placement (parents centred over their team span) ────────────────
   const place = (v: V, start: number) => {

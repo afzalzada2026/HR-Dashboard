@@ -216,7 +216,7 @@ export async function downloadOrgVectorPdf(layout: OrgLayout, opts: OrgExportOpt
   doc.text(new Date().toLocaleString(), page[0] - margin, 24, { align: "right" });
   doc.text(`Prepared by ${opts.generatedBy ?? "ATOMA"}`, page[0] - margin, 40, { align: "right" });
 
-  const railX = 12;
+  const railX = 12; // level board on the LEFT
   for (const L of layout.layers) {
     const start = Math.max(0, L.offset - layout.gapMain / 2);
     const size = L.size + layout.gapMain;

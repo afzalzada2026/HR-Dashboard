@@ -1,8 +1,7 @@
 "use client";
 
 import {
-  Award, BadgeCheck, Briefcase, Building2, Cake, CalendarCheck, CalendarPlus, Camera, FileDown, Flag, Globe, GraduationCap, Heart, Hourglass, House, LayoutDashboard, Layers, MapPin, Mars, Network, Scale, SlidersHorizontal, UserRound, Users, Venus,
-} from "lucide-react";
+  Award, BadgeCheck, Briefcase, Building2, Cake, CalendarCheck, CalendarPlus, Camera, FileDown, Flag, Globe, GraduationCap, Heart, Hourglass, House, LayoutDashboard, Layers, MapPin, Mars, Network, Scale, SlidersHorizontal, UserRound, Users, Venus, TrendingUp, UserMinus } from "lucide-react";
 import Link from "next/link";
 import { useMemo } from "react";
 import { ageDistribution, computeKpis, countBy, hiresComparison, hiringTrend, type Kpis, kpiSeries, memo, monthlyHires, topN } from "@/lib/analytics";
@@ -30,7 +29,7 @@ const OVERVIEW_KPIS = [
   ["kpi-total", "Total Employees"], ["kpi-male", "Male Employees"], ["kpi-female", "Female Employees"], ["kpi-gender-ratio", "Gender Ratio"],
   ["kpi-local", "Local Staff"], ["kpi-expat", "Expat Staff"], ["kpi-age", "Average Age"], ["kpi-tenure", "Average Tenure"],
   ["kpi-married", "Married Employees"], ["kpi-single", "Single Employees"], ["kpi-divisions", "Divisions"], ["kpi-departments", "Departments"],
-  ["kpi-stations", "Duty Stations"], ["kpi-nationalities", "Nationalities"], ["kpi-span", "Average Span of Control"], ["kpi-joined-year", "Joined This Year"],
+  ["kpi-stations", "Duty Stations"], ["kpi-nationalities", "Nationalities"], ["kpi-span", "Average Span of Control"], ["kpi-exited", "Exited Employees"], ["kpi-promoted", "Promoted Employees"], ["kpi-joined-year", "Joined This Year"],
   ["kpi-joined-month", "Joined This Month"], ["kpi-bachelor", "Bachelor Degree+"], ["kpi-master", "Master Degree+"], ["kpi-phd", "PhD Holders"],
 ] as const;
 
@@ -124,6 +123,8 @@ function OverviewInner() {
     { id: "kpi-joined-month", label: "Joined This Month", value: k.joinedThisMonth, icon: CalendarCheck, accent: ["#16A34A", "#86EFAC"], spark: hires.hires, trend: { pct: pctChange(k.joinedThisMonth, cmp.mtdLastMonth), polarity: "up-good", label: "vs last month" }, sub: "new joiners" },
     { id: "kpi-bachelor", label: "Bachelor Degree+", value: k.bachelorPlus, icon: GraduationCap, accent: ["#0D47A1", "#00A8FF"], spark: sp((x) => x.bachelorPlus), trend: tr((x) => x.bachelorPlus, "up-good"), sub: `${share(k.bachelorPlus)} of workforce` },
     { id: "kpi-master", label: "Master Degree+", value: k.masterPlus, icon: Award, accent: ["#4338CA", "#818CF8"], spark: sp((x) => x.masterPlus), trend: tr((x) => x.masterPlus, "up-good"), sub: `${share(k.masterPlus)} of workforce`, onClick: () => toggle("qualification", "Master") },
+    { id: "kpi-exited", label: "Exited Employees", value: k.exited, icon: UserMinus, accent: ["#B91C1C", "#F87171"], spark: sp((x) => x.exited), trend: tr((x) => x.exited, "down-good"), sub: `${share(k.exited)} of records`, tooltip: "Records whose remarks or status indicate resignation, termination, end of contract or exit. Reported separately so active headcount stays accurate.", onClick: () => toggle("status", "Exited") },
+    { id: "kpi-promoted", label: "Promoted Employees", value: k.promoted, icon: TrendingUp, accent: ["#047857", "#34D399"], spark: sp((x) => x.promoted), trend: tr((x) => x.promoted, "up-good"), sub: `${share(k.promoted)} of workforce`, tooltip: "Records indicating a promotion in the source remarks or promotion column.", onClick: () => toggle("promoted", "Promoted") },
     { id: "kpi-phd", label: "PhD Holders", value: k.phd, icon: BadgeCheck, accent: ["#A16207", "#FACC15"], spark: sp((x) => x.phd), trend: tr((x) => x.phd, "up-good"), sub: `${share(k.phd)} of workforce`, onClick: () => toggle("qualification", "PhD") },
   ];
 
