@@ -132,7 +132,9 @@ Chart clicks cross-filter the entire application. Charts support table mode, foc
 - Fixed ATOMA top-to-bottom bands: L6 → L5 → L4 → L3H → L3 → L2 → L1.
 - Selecting a division renders the approved HR-style organogram: level rail on the left, orange band separators, centred subtrees and right-angle connectors; Department further scopes the chart.
 - Vacant leadership posts appear as dotted cards with “(Vacant)”; temporary/contract staff appear on yellow cards.
-- Landscape organogram style (per the approved ATOMA design): levels are horizontal rows with an amber level rail, branches spread left-to-right, and orthogonal bus connectors run between bands without crossing cards.
+- Canonical organogram: level bands are always horizontal and **every person sits in their own level band** (an L4 employee is never drawn inside the L6 band), with reporting subtrees balanced around each manager and adaptive roster cards for large teams.
+- The level board sits on the **left** of the chart (the layout reserves the gutter for it), showing bold band codes (L6 … L1) with a headcount circle.
+- Orthogonal connectors run between bands without crossing cards; branches spread left-to-right with a centre aisle for even branch sets.
 - Rows are labelled by the dominant actual level and support “cont.” continuation rows, so a scope led at L5 starts at L5 and skipped/repeated levels still label correctly.
 - Leaf teams of five or more collapse into roster cards (2/3/4 columns) listing every person; smaller teams stay as individual cards.
 - Even sets of four or more branches reserve a centre aisle, so a team of four sits two left and two right of the reporting line.

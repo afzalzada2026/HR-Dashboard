@@ -17,6 +17,7 @@ const LEVELS = [...LEVEL_ORDER];
 const GENDERS = ["", "Male", "Female", "Unspecified"];
 const MARITAL = ["", "Married", "Single", "Divorced", "Widowed", "Separated", "Other"];
 const EXAPT = ["", "Local", "Expat", "Unspecified"];
+const EMPLOYMENT = ["Active", "Separated"];
 
 function blank(): Draft {
   return {
@@ -271,7 +272,11 @@ export function EmployeeEditor() {
             <Field label="Remarks" value={draft.remarks ?? ""} onChange={(v) => set({ remarks: v })} placeholder="e.g. Temporary contract" />
             <label className="flex items-center gap-2 self-end pb-2 text-[12px] text-fg">
               <input type="checkbox" className="accent-[#00A8FF]" checked={draft.status === "Separated"} onChange={(e) => set({ status: e.target.checked ? "Separated" : "Active" })} />
-              Mark as separated / inactive
+              Exited / separated employee
+            </label>
+            <label className="flex items-center gap-2 self-end pb-2 text-[12px] text-fg">
+              <input type="checkbox" className="accent-[#00A8FF]" checked={!!draft.promoted} onChange={(e) => set({ promoted: e.target.checked })} />
+              Promoted employee
             </label>
           </div>
         )}

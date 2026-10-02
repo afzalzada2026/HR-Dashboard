@@ -216,7 +216,7 @@ export async function downloadOrgVectorPdf(layout: OrgLayout, opts: OrgExportOpt
   doc.text(new Date().toLocaleString(), page[0] - margin, 24, { align: "right" });
   doc.text(`Prepared by ${opts.generatedBy ?? "ATOMA"}`, page[0] - margin, 40, { align: "right" });
 
-  const railX = layout.width - RAIL_W;
+  const railX = 12;
   for (const L of layout.layers) {
     const start = Math.max(0, L.offset - layout.gapMain / 2);
     const size = L.size + layout.gapMain;
@@ -226,7 +226,7 @@ export async function downloadOrgVectorPdf(layout: OrgLayout, opts: OrgExportOpt
     if (L.index > 0) {
       strokeHex("#F8B900");
       doc.setLineWidth(Math.max(0.15, 2 * scale));
-      doc.line(X(12), Y(start), X(railX - 8), Y(start));
+      doc.line(X(railX + RAIL_W + 8), Y(start), X(layout.width - 12), Y(start));
     }
     fillHex("#FDE68A");
     doc.rect(X(railX), Y(start), S(RAIL_W), S(size), "F");

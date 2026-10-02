@@ -145,17 +145,6 @@ function candidateScores(nodes: OrgNode[], top: OrgNode | null, division: string
   const maxSen = Math.max(1, ...inDiv.map((n) => n.sen));
   return inDiv
     .map((n): DivisionHeadCandidate => {
-            // 🌟 VIBE FIX: If this node is the absolute top boss, skip evaluating them here
-      if (top && n.id === top.id) {
-        return {
-          key: employeeOrgKey(n.emp),
-          employee: n.emp,
-          score: -1000,
-          reasons: ["Organization head position"],
-          selected: false,
-          manual: false
-        };
-      }
       const title = n.emp.title || "";
       const key = employeeOrgKey(n.emp);
       const refs = [refCounts.get(normEmail(n.emp.email)), refCounts.get(normName(n.emp.fullName))].filter(Boolean) as { total: number; departments: Set<string> }[];
@@ -241,16 +230,16 @@ export interface OrgOverrides {
 
 export function loadOrgOverrides(): OrgOverrides {
   try {
-       const raw = localStorage.getItem("atoma:org-overrides");
-    if (!raw) return { heads: {}, reporting: {} };
-    const parsed = JSON.parse(raw) as Partial<OrgOverrides> | null;
-    return {
-      heads: parsed?.heads ?? {},
-      reporting: parsed?.reporting ?? {},
-    };
+    const raw = JSON.parse(localStorage.getItem("atoma:org-overrides") || "{}") as Partial<OrgOverrides> | null;
+    // Always return a complete shape: a partial/older blob must never crash the chart.
+    return { heads: raw?.heads ?? {}, reporting: raw?.reporting ?? {} };
   } catch {
     return { heads: {}, reporting: {} };
   }
+}
+
+function normalizeOverrides(overrides?: Partial<OrgOverrides>): OrgOverrides {
+  return { heads: overrides?.heads ?? {}, reporting: overrides?.reporting ?? {} };
 }
 
 export function saveOrgOverrides(next: OrgOverrides): void {
@@ -261,7 +250,8 @@ export function saveOrgOverrides(next: OrgOverrides): void {
   }
 }
 
-export function buildOrgTree(data: Employee[], overrides: OrgOverrides = { heads: {}, reporting: {} }): OrgBuild {
+export function buildOrgTree(data: Employee[], overridesIn?: Partial<OrgOverrides>): OrgBuild {
+  const overrides = normalizeOverrides(overridesIn);
   const nodes: OrgNode[] = data.map((emp, i) => ({ id: `n${i}`, emp, parentId: null, children: [], depth: 0, total: 1, sen: seniorityValue(emp), link: "root", level: canonicalOrgLevel(emp.level) ?? fallbackLevel(emp) }));
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const byEmail = new Map<string, OrgNode>();
@@ -297,7 +287,7 @@ export function buildOrgTree(data: Employee[], overrides: OrgOverrides = { heads
   for (const n of nodes) {
     let parent: OrgNode | undefined;
     let link: LinkSource = "root";
-    const overrideKey = overrides.reporting[employeeOrgKey(n.emp)];
+    const overrideKey = overrides.reporting?.[employeeOrgKey(n.emp)];
     const overrideNode = overrideKey ? (byOrgKey.get(overrideKey) ?? byName.get(normName(overrideKey))?.[0]) : undefined;
     if (overrideNode && overrideNode !== n) {
       parent = overrideNode;
@@ -368,14 +358,10 @@ export function buildOrgTree(data: Employee[], overrides: OrgOverrides = { heads
   const headCandidates = new Map<string, DivisionHeadCandidate[]>();
   const divisions = [...new Set(nodes.map((n) => n.emp.division).filter(Boolean))].sort();
   for (const division of divisions) {
-    const ranked = candidateScores(nodes, top, division, overrides.heads[division]);
+    const ranked = candidateScores(nodes, top, division, overrides.heads?.[division]);
     headCandidates.set(division, ranked.slice(0, 12));
     const selected = ranked[0];
     if (!selected) continue;
-    
-    // 🌟 VIBE FIX: If the top choice for division head is actually the global CEO, skip it
-    if (top && selected.key === employeeOrgKey(top.emp)) continue;
-
     const head = nodes.find((n) => employeeOrgKey(n.emp) === selected.key && n.emp.division === division);
     if (!head) continue;
     divisionHeads.set(division, head);

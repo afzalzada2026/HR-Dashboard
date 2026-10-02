@@ -149,7 +149,9 @@ export function layoutOrg(roots: OrgNode[], opts: LayoutOpts): OrgLayout {
   const levelOffset = finiteRootLevels.length ? Math.min(...finiteRootLevels) : 0;
   const nodes: LNode[] = [];
   const sizeOf = (ln: LNode): CardSize => (ln.kind === "group" ? groupCardSize(ln.members!.length, o.groupMax) : o.card);
-  const normalizedLevel = (n: OrgNode, parentLayer: number) => Math.max(0, o.layerOf(n) - levelOffset, parentLayer + 1);
+  // Canonical model: each person sits in their own level band. A report whose band is not
+  // below its manager (data anomaly) still stays in its own band; connectors handle direction.
+  const normalizedLevel = (n: OrgNode, _parentLayer: number) => Math.max(0, o.layerOf(n) - levelOffset);
 
   // ── 1. build the placed tree, assigning every node a level band ─────────────
   const build = (n: OrgNode, parent: LNode | null, parentLayer: number, groupKey: string): V => {

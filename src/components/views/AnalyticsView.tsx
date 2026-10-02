@@ -3,7 +3,7 @@
 import { Activity, ArrowUpRight, Building, GitBranch, Globe2, Info, Percent, Repeat, Scale, Target, TrendingUp, UserMinus, UserPlus, Users } from "lucide-react";
 import { type ReactNode, useMemo } from "react";
 import { groupStats, layerDistribution, memo, spanDistribution, strategicMetrics, yearlyHires } from "@/lib/analytics";
-import { cn, fmtNum, fmtPct } from "@/lib/format";
+import { cn, fmtDate, fmtNum, fmtPct } from "@/lib/format";
 import { generateInsights, insightBox } from "@/lib/insights";
 import { useDataStore } from "@/store/data";
 import { ChartCard } from "../charts/ChartCard";
@@ -28,6 +28,8 @@ const ANALYTICS_WIDGETS: DashboardWidget[] = [
   { id: "section-gauges", label: "Diversity & retention gauges", group: "Intelligence", essential: true },
   { id: "section-signals", label: "Key strategic signals", group: "Intelligence" },
   { id: "section-scorecard", label: "Division scorecard", group: "Organization", essential: true },
+  { id: "section-exited", label: "Exited employees", group: "Workforce status", essential: true },
+  { id: "section-promoted", label: "Promoted employees", group: "Workforce status", essential: true },
   { id: "visual-growth", label: "Headcount growth by year", group: "Organization" },
   { id: "visual-radar", label: "Division capability radar", group: "Organization" },
   { id: "visual-span", label: "Span of control distribution", group: "Organization" },
@@ -111,6 +113,49 @@ function Scorecard() {
           </tbody>
         </table>
       </div>
+    </Card>
+  );
+}
+
+function StatusSection({ kind, employees }: { kind: "exited" | "promoted"; employees: ReturnType<typeof useDataStore.getState>["employees"] }) {
+  const rows = useMemo(() => (kind === "exited" ? employees.filter((e) => e.status === "Separated") : employees.filter((e) => e.promoted)), [kind, employees]);
+  return (
+    <Card className="animate-fade-up">
+      <CardTitle
+        icon={kind === "exited" ? <UserMinus /> : <Percent />}
+        title={kind === "exited" ? "Exited employees" : "Promoted employees"}
+        subtitle={kind === "exited" ? "Sourced from Employment Status (or exit wording in Remarks) — kept out of the active workforce" : "Sourced from the Promoted field (or promotion wording in Remarks)"}
+        actions={<Badge tone={kind === "exited" ? "warning" : "success"}>{fmtNum(rows.length)} of {fmtNum(employees.length)}</Badge>}
+      />
+      {rows.length === 0 ? (
+        <p className="text-sm text-muted">No records flagged yet. Use the employee data editor or an Employment Status / Promoted column in your file.</p>
+      ) : (
+        <div className="max-h-[300px] overflow-y-auto rounded-xl border border-line">
+          <table className="w-full text-left text-[12px]">
+            <thead className="sticky top-0 bg-surface-muted text-[10px] tracking-wider text-muted uppercase">
+              <tr>
+                <th className="px-3 py-2 font-semibold">Employee</th>
+                <th className="px-3 py-2 font-semibold">Position</th>
+                <th className="px-3 py-2 font-semibold">Division</th>
+                <th className="px-3 py-2 font-semibold">Joined</th>
+                {kind === "exited" ? <th className="px-3 py-2 font-semibold">Reason / remarks</th> : <th className="px-3 py-2 font-semibold">Level</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.slice(0, 100).map((e) => (
+                <tr key={e.id} className="border-t border-line hover:bg-surface-muted/60">
+                  <td className="px-3 py-1.5 font-medium text-fg">{e.fullName}</td>
+                  <td className="max-w-[190px] truncate px-3 py-1.5 text-muted">{e.title}</td>
+                  <td className="max-w-[150px] truncate px-3 py-1.5 text-muted">{e.division}</td>
+                  <td className="px-3 py-1.5 text-muted">{fmtDate(e.joinDate)}</td>
+                  {kind === "exited" ? <td className="max-w-[220px] truncate px-3 py-1.5 text-muted">{e.remarks || "—"}</td> : <td className="px-3 py-1.5"><Badge tone="primary">{e.level || "—"}</Badge></td>}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {rows.length > 100 && <p className="px-3 py-2 text-[11px] text-subtle">Showing the first 100 of {fmtNum(rows.length)}.</p>}
+        </div>
+      )}
     </Card>
   );
 }
@@ -203,6 +248,12 @@ function AnalyticsInner() {
         </div>
       )}
       {layout.visible("section-scorecard") && <div className="mt-4"><Scorecard /></div>}
+      {layout.visibleCount(["section-exited", "section-promoted"]) > 0 && (
+        <div className="mt-4 grid gap-4 xl:grid-cols-2">
+          {layout.visible("section-exited") && <StatusSection kind="exited" employees={filtered} />}
+          {layout.visible("section-promoted") && <StatusSection kind="promoted" employees={filtered} />}
+        </div>
+      )}
       {layout.visibleCount(["visual-growth", "visual-radar", "visual-span", "visual-layers"]) > 0 && (
         <div className="mt-4 grid grid-flow-row-dense gap-4 xl:grid-cols-2">
           {layout.visible("visual-growth") && <ChartCard title="Headcount Growth by Year" subtitle="Annual hires vs year-end headcount (10 years)" option={yearOpt} height={300} table={{ columns: ["Year", "Hires", "Headcount"], rows: years.labels.map((l, i) => [l, years.hires[i], years.headcount[i]]) }} />}

@@ -67,6 +67,14 @@ Do not rename IDs without migrating `atoma-ui.hiddenWidgets` preferences.
 - The map has two filters: **Duty station (default)** and **Home province**; it never defaults to Kabul as a province selection.
 - Duty-station shading uses the province hosting the station; employees keep their own home province.
 
+## Corrections from field feedback
+
+- Org level bands are **level-based, not depth-based** — never derive a row from tree depth or an L4 person will render inside the L6 band.
+- `loadOrgOverrides()` must always return a full `{heads, reporting}` shape; a partial localStorage blob previously crashed the chart on the first row (`…(reading 'atoma-1197')`).
+- The level board belongs on the **left** of the chart in every renderer (screen, SVG, PDF, Visio).
+- Map focus state distinguishes `null` (untouched → default to top station) from `"all"` (explicit "All duty stations/provinces" → no focus).
+- The employee record editor lives in `DataView` and must stay mounted; saving works with or without an existing dataset (store + optional adapter persistence).
+
 ## Client-render pitfalls
 
 - Never read `localStorage`/IndexedDB during the first render of a dashboard: the server renders a different tree and React throws a hydration error that blanks the module. Load persisted state in an effect (requestAnimationFrame wrapper keeps ESLint happy).

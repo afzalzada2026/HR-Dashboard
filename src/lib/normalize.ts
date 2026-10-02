@@ -296,8 +296,16 @@ export function normalizeRows(rows: Record<string, unknown>[], mapping: Partial<
       tazkira: txt("tazkira"),
       bloodGroup: normBlood(txt("bloodGroup")),
       remarks,
-      status: SEPARATED_RE.test(remarks) ? "Separated" : "Active",
-      promoted: /promot/i.test(remarks),
+      status: (() => {
+        const explicit = txt("employmentStatus");
+        if (explicit) return SEPARATED_RE.test(explicit) || /^(exited|inactive|former|left|resigned|terminated|separated)$/i.test(explicit) ? "Separated" : "Active";
+        return SEPARATED_RE.test(remarks) ? "Separated" : "Active";
+      })(),
+      promoted: (() => {
+        const explicit = txt("promotionFlag");
+        if (explicit) return /^(y|yes|true|1|promoted|promotion|yes .*)$/i.test(explicit) || /promot/i.test(explicit);
+        return /promot/i.test(remarks);
+      })(),
       isManager: false,
       directReports: 0,
     });

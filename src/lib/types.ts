@@ -51,7 +51,9 @@ export type FieldKey =
   | "email"
   | "tazkira"
   | "bloodGroup"
-  | "remarks";
+  | "remarks"
+  | "employmentStatus"
+  | "promotionFlag";
 
 export type QualificationGroup = "PhD" | "Master" | "Bachelor" | "Diploma" | "High School" | "Other";
 
