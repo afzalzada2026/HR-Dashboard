@@ -32,6 +32,8 @@ export interface LayoutOpts {
   gutter?: number;
   /** Wrap a level row when it would exceed this width (print optimisation). */
   maxRowWidth?: number;
+  /** Per-level card sizing (lower bands can use denser cards to fit more staff). */
+  cardFor?: (node: OrgNode) => CardSize;
 }
 
 export interface LNode {
@@ -148,7 +150,7 @@ export function layoutOrg(roots: OrgNode[], opts: LayoutOpts): OrgLayout {
   const finiteRootLevels = roots.map(o.layerOf).filter(Number.isFinite);
   const levelOffset = finiteRootLevels.length ? Math.min(...finiteRootLevels) : 0;
   const nodes: LNode[] = [];
-  const sizeOf = (ln: LNode): CardSize => (ln.kind === "group" ? groupCardSize(ln.members!.length, o.groupMax) : o.card);
+  const sizeOf = (ln: LNode): CardSize => (ln.kind === "group" ? groupCardSize(ln.members!.length, o.groupMax) : (ln.node && o.cardFor?.(ln.node)) || o.card);
   // Bands are ABSOLUTE: every person sits in their own level band (an L4 is never drawn in L6).
   const normalizedLevel = (n: OrgNode) => Math.max(0, o.layerOf(n));
 

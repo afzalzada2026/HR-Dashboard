@@ -476,6 +476,7 @@ export default function DataView() {
   const status = useDataStore((s) => s.status);
   const [size, setSize] = useState(1250);
   const [refresh, setRefresh] = useState(0);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const allowed = can(role, "upload_data");
 
   const switchMode = async (m: StorageMode) => {

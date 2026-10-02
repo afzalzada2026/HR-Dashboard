@@ -32,6 +32,7 @@ export function UserManagement() {
   const [dialog, setDialog] = useState<Dialog>(null);
   const [form, setForm] = useState<UserForm>(EMPTY);
   const [busy, setBusy] = useState(false);
+  const [confirmUserId, setConfirmUserId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const allowed = session.role === "hr_admin";
   const visibleUsers = allowed ? users : users?.filter((user) => user.id === session.userId) ?? null;
@@ -98,7 +99,8 @@ export function UserManagement() {
   };
 
   const remove = async (user: PublicLocalUser) => {
-    if (!window.confirm(`Delete local user “${user.name}”?`)) return;
+    if (confirmUserId !== user.id) { setConfirmUserId(user.id); notify("warning", "Click delete again to confirm", `${user.name} will be removed.`); return; }
+    setConfirmUserId(null);
     try {
       await deleteLocalUser(user.id, session);
       await appendLocalAudit("user.deleted", "security", user.username);

@@ -5,6 +5,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, Columns3, F
 import { type ReactNode, useMemo, useRef, useState } from "react";
 import { exportCSV, exportEmployeesXLSX, type ExportColumn } from "@/lib/exporters";
 import { cn, fmtDate, fmtNum, timestampSlug } from "@/lib/format";
+import { describeFilters } from "@/lib/filters";
 import { can } from "@/lib/rbac";
 import { logAudit } from "@/lib/storage";
 import type { Employee } from "@/lib/types";
@@ -77,6 +78,9 @@ function DirectoryInner() {
   const [visible, setVisible] = useState<string[]>(DEFAULT_VISIBLE);
   const [colsOpen, setColsOpen] = useState(false);
   const [pageSize, setPageSize] = useState(100);
+  const clearAllFilters = useDataStore((state) => state.clearFilters);
+  const filters = useDataStore((state) => state.filters);
+  const employees = useDataStore((state) => state.employees);
   const [page, setPage] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -250,7 +254,18 @@ function DirectoryInner() {
                 );
               })}
             </div>
-            {!rows.length && <p className="py-16 text-center text-sm text-muted">No employees match your search.</p>}
+            {!rows.length && (
+              <div className="py-14 text-center">
+                <p className="text-[15px] font-semibold text-fg">No employees match the current search and filters</p>
+                <p className="mx-auto mt-1 max-w-xl text-[12px] text-muted">
+                  {fmtNum(employees.length)} employees are loaded in this dataset. {describeFilters(filters).length ? <>Active: {describeFilters(filters).join(" · ")}. Rows with unknown age, tenure or dates are always retained.</> : <>Only the search box and column filters are applied.</>}
+                </p>
+                <div className="mt-4 flex flex-wrap justify-center gap-2">
+                  <Button size="sm" variant="primary" onClick={() => { setQ(""); setColFilters({}); clearAllFilters(); }}>Clear search & all filters</Button>
+                  <Button size="sm" onClick={() => { setQ(""); setColFilters({}); }}>Clear search only</Button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
