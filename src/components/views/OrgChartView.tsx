@@ -4,6 +4,7 @@ import { BadgeCheck, Building2, ChevronRight, Layers, Network, RotateCcw, Search
 import { useEffect, useMemo, useState } from "react";
 import { averageDepth, buildOrgTree, loadOrgOverrides, rankDivisionHeadCandidates, saveOrgOverrides, scopeRoots, type OrgOverrides } from "@/lib/orgtree";
 import { buildOrgLayout } from "@/lib/orglayout";
+import { buildOrgFromLegacy } from "@/lib/legacy-to-mod";
 import { fmtNum, fmtPct } from "@/lib/format";
 import { useDataStore } from "@/store/data";
 import { useUIStore } from "@/store/ui";
@@ -18,6 +19,8 @@ function OrgInner() {
   const [division, setDivision] = useState("");
   const [department, setDepartment] = useState("");
   const [query, setQuery] = useState("");
+  const legacyFlag = process.env.NEXT_PUBLIC_ORG_LEGACY === "true";
+
   // Overrides load after mount so server and client render identical trees (no hydration error).
   const [overrides, setOverrides] = useState<OrgOverrides>({ heads: {}, reporting: {} });
   useEffect(() => {
@@ -25,7 +28,10 @@ function OrgInner() {
     return () => cancelAnimationFrame(frame);
   }, []);
 
-  const build = useMemo(() => buildOrgTree(filtered, overrides), [filtered, overrides]);
+  const build = useMemo(
+    () => (legacyFlag ? buildOrgFromLegacy(filtered as any, overrides as any) : buildOrgTree(filtered, overrides)),
+    [filtered, overrides, legacyFlag],
+  );
   const roots = useMemo(() => scopeRoots(build, division || undefined, department || undefined), [build, division, department]);
   const layout = useMemo(() => buildOrgLayout(roots), [roots]);
 
@@ -56,7 +62,13 @@ function OrgInner() {
 
   return (
     <>
-      <PageHeader eyebrow="Organization" title="Organogram" icon={<Network />} subtitle={subtitle} />
+      <PageHeader
+        eyebrow="Organization"
+        title="Organogram"
+        icon={<Network />}
+        subtitle={subtitle}
+        actions={legacyFlag ? <Badge tone="warning">Legacy org adapter enabled</Badge> : undefined}
+      />
 
       <div className="glass animate-fade-up relative z-10 mb-3 rounded-2xl p-3" data-no-capture="true">
         <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-[220px_240px_minmax(240px,1fr)_auto] xl:items-center">
@@ -175,7 +187,7 @@ function OrgInner() {
 
       {build.quality.unmatched.length > 0 && (
         <Card className="animate-fade-up mt-4">
-          <CardTitle icon={<ChevronRight />} title="Supervisor names needing review" subtitle={`${build.quality.unmatched.length} references did not match an employee exactly — fuzzy matching resolved most variants`} />
+          <CardTitle icon={<ChevronRight />} title="Supervisor names needing review" subtitle={`${build.quality.unmatched.length} references did not match an employee exactly — fuzzy matching resolved most.`} />
           <div className="flex flex-wrap gap-1.5">
             {build.quality.unmatched.slice(0, 12).map((u) => (
               <Badge key={u.name} tone="warning">
@@ -184,8 +196,7 @@ function OrgInner() {
             ))}
           </div>
           <p className="mt-3 text-[11px] text-subtle">
-            Resolved by: {fmtNum(build.quality.byEmail)} e-mail · {fmtNum(build.quality.byNo)} employee number · {fmtNum(build.quality.byName)} name/fuzzy · {fmtNum(build.quality.inferred)} inferred ·{" "}
-            {fmtNum(build.quality.cycles)} cycles repaired · {fmtPct((build.quality.linked / Math.max(1, build.quality.total)) * 100)} linked.
+            Resolved by: {fmtNum(build.quality.byEmail)} e-mail · {fmtNum(build.quality.byNo)} employee number · {fmtNum(build.quality.byName)} name/fuzzy · {fmtNum(build.quality.inferred)} inferred · {fmtNum(build.quality.cycles)} cycles repaired · {fmtPct((build.quality.linked / Math.max(1, build.quality.total)) * 100)} linked.
           </p>
         </Card>
       )}
