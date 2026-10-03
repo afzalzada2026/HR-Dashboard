@@ -106,7 +106,6 @@ Chart clicks cross-filter the entire application. Charts support table mode, foc
 - Two primary filters: **Duty station (default)** and **Home province**. The map opens focused on the largest duty station, not on a province.
 - Duty-station view shades provinces by staff whose duty station sits there and plots station markers; home-province view shades by the province employees belong to.
 - Selecting a station or province opens its profile (headcount, gender split, top qualification/department, province or station mix) with an explicit “Filter dashboard by this” action.
-
 - 34 ADM1 province polygons from `public/geo/afghanistan.json`.
 - Canonical names are identical across GeoJSON, province dictionary, employees, filters, and ECharts.
 - Mapping priority: explicit province/region field → duty station/city → Unknown.
@@ -139,19 +138,19 @@ Chart clicks cross-filter the entire application. Charts support table mode, foc
 - Fixed ATOMA top-to-bottom bands: L6 → L5 → L4 → L3H → L3 → L2 → L1.
 - Selecting a division renders the approved HR-style organogram: level rail on the left, orange band separators, centred subtrees and right-angle connectors; Department further scopes the chart.
 - Vacant leadership posts appear as dotted cards with “(Vacant)”; temporary/contract staff appear on yellow cards.
-- Landscape organogram style (per the approved ATOMA design): levels are horizontal rows with an amber level rail, branches spread left-to-right, and orthogonal bus connectors run between bands without crossing cards.
+- Landscape organogram style (per the approved ATOMA design): levels are horizontal rows with an amber level rail, branches spread left-to-right, and orthogonal bus connectors run between bands while preserving print readability.
 - Rows are labelled by the dominant actual level and support “cont.” continuation rows, so a scope led at L5 starts at L5 and skipped/repeated levels still label correctly.
 - Leaf teams of five or more collapse into roster cards (2/3/4 columns) listing every person; smaller teams stay as individual cards.
 - Even sets of four or more branches reserve a centre aisle, so a team of four sits two left and two right of the reporting line.
-- Reporting lines follow each employee’s line manager directly, regardless of level (an L2 employee reporting to an L5 manager is drawn that way); unresolved lines are drawn as dashed amber “inferred” links and surfaced for review.
-- Division heads are resolved by a scored candidate engine (C-suite/Head/GM titles, level, reporting outside the division, division-keyword titles, span and named reports) and can be overridden per division by an HR Admin.
+- Reporting lines follow each employee’s line manager directly, regardless of level (an L2 employee reporting to an L5 manager is drawn that way); unresolved lines are drawn as dashed amber inference lines.
+- Division heads are resolved by a scored candidate engine (C-suite/Head/GM titles, level, reporting outside the division, division-keyword titles, span and named reports) and can be overridden per division.
 - Reports sit in a centred row under their manager — four reports split two left and two right of the reporting line.
 - Level bands are flexible: a busy band (typically L2/L1) wraps into several rows and grows taller, so charts stay print-friendly instead of stretching into one endless line.
 - Divisions above 80 people render one sheet per department, each topped by the division head/director and containing all staff of that department.
 - Vacant posts are visually supported (dotted cards) but not synthesised for now; temporary/contract staff stay highlighted in yellow.
-- Staff officers (Secretary, Personal/Executive Assistant) sit laterally beside their manager at the manager’s level, connected by a short horizontal line, exactly as in the approved chart.
+- Staff officers (Secretary, Personal/Executive Assistant) sit laterally beside their manager at the manager’s level, connected by a short horizontal line.
 - Teams of five or more stack into balanced columns of up to three (spine + stub connectors) to keep sheets narrow; smaller teams sit in a centred row around the reporting line.
-- Position cards are print-tuned: compact boxes (138×52) containing only the **position name in bold on top** and the **employee name beneath**, so names stay legible after scaling a sheet onto a page.
+- Position cards are print-tuned: compact boxes containing the position name in bold above the employee name.
 - Level labels sit on a right-hand rail with a **bold level code** (L6…L1) and a small circle showing that level’s employee count; level divider lines are flexible and rows grow taller wherever roster cards need the space.
 - A person without a supervisor (e.g. the CEO) is treated as a hierarchy root; missing supervisors are re-linked as dashed inferred lines and surfaced for review — never an error or a detached row.
 - Print-optimised output: rows wrap to the selected paper (A4/A3/A2) so type prints at its designed size; charts beyond one page become a multi-page **print pack** with continuation captions, and large divisions print as **department sheets** (division head on every sheet, that department's staff only).
@@ -162,6 +161,7 @@ Chart clicks cross-filter the entire application. Charts support table mode, foc
 - L3H receives head-band priority when resolving department heads.
 - Actual supervisor links are primary; bands, titles and direct-report counts resolve leaders and missing links.
 - Search, zoom, pan, recursive expand/collapse, paged top branches, and profile drill-through.
+- Legacy single-file org-chart payloads can now be converted through the modular adapter in `src/lib/legacy-to-mod.ts` without breaking the repository’s current structure.
 
 ### 4.9 Insights
 

@@ -2,38 +2,35 @@ import type { Employee as RepoEmployee } from "./types";
 import { buildOrgTree } from "./orgtree";
 import { buildOrgLayout } from "./orglayout";
 import { buildOrgSvg as buildExportSvg } from "./org-export";
-import { canonicalOrgLevel } from "./organogram-levels";
 
 /**
- * Adapter to convert the single-file (legacy) employee shape into the repo's
- * normalized Employee type and then call the modular organogram API.
+ * Adapter: legacy single-file org-chart data -> the repo's modular organogram API.
  *
- * This file intentionally keeps the conversion small and conservative so the
- * existing app modules can be reused without changing behaviour.
+ * This keeps the existing app architecture stable while allowing the attached
+ * single-file version to be used as an input source with minimal friction.
  */
 
 function levelRankFromLabel(level?: string): number {
   if (!level) return 0;
-  const L = (String(level) || "").toUpperCase().replace(/\s+/g, "");
-  const m = L.match(/^L(\d{1,2})([A-Z]{0,2})?$/);
-  if (!m) return 0;
-  let n = Number(m[1]);
+  const value = String(level).trim().toUpperCase().replace(/\s+/g, "");
+  const match = value.match(/^L(\d{1,2})([A-Z]{0,2})?$/);
+  if (!match) return 0;
+
+  const n = Number(match[1]);
   if (Number.isNaN(n)) return 0;
-  // produce a simple numeric rank compatible with fallbackLevel heuristics
-  let rank = 4 + n; // L1 -> 5, L6 -> 10 (approx)
-  if (m[2] === "H") rank += 0.5;
+
+  let rank = 4 + n;
+  if (match[2] === "H") rank += 0.5;
   return rank;
 }
 
-function toRepoEmployee(legacy: any, idx: number): RepoEmployee {
-  // Map legacy single-file fields into the repository canonical shape.
-  // The legacy file uses names like actualLevel, dateOfJoining, tazkiraNumber etc.
+function toRepoEmployee(legacy: Record<string, any>, idx: number): RepoEmployee {
   const id = legacy.id ? String(legacy.id) : `LEGACY-${idx}`;
-  const level = legacy.actualLevel || legacy.level || legacy.Level || "";
+  const level = String(legacy.actualLevel || legacy.level || legacy.Level || "").trim();
   const joinDate = legacy.dateOfJoining || legacy.joinDate || legacy.joiningDate || "";
-  const dob = legacy.dateOfBirth || legacy.dob || legacy.dateOfBirth || "";
-
-  const status = (legacy.employmentStatus || legacy.status || "Active").toLowerCase().startsWith("ex") ? "Separated" : "Active";
+  const dob = legacy.dateOfBirth || legacy.dob || "";
+  const statusRaw = legacy.employmentStatus || legacy.status || "Active";
+  const status = String(statusRaw).toLowerCase().startsWith("ex") ? "Separated" : "Active";
 
   return {
     id,
@@ -46,18 +43,18 @@ function toRepoEmployee(legacy: any, idx: number): RepoEmployee {
     title: legacy.title || legacy.positionTitle || "",
     division: legacy.division || legacy.Division || "",
     department: legacy.department || legacy.Department || "",
-    supervisor: legacy.supervisor || legacy.directSupervisor || legacy."Direct Supervisor" || "",
-    supervisorEmail: legacy.supervisorEmail || legacy.supervisor_email || legacy.supervisorEmail || "",
+    supervisor: legacy.supervisor || legacy.directSupervisor || legacy["Direct Supervisor"] || "",
+    supervisorEmail: legacy.supervisorEmail || legacy.supervisor_email || "",
     dutyStation: legacy.dutyStation || legacy.duty_station || "",
     contactNumber: legacy.contactNumber || legacy.contact_number || "",
-    level: String(level || "").replace(/Actual Level:\s*/i, "") || "",
+    level,
     levelRank: levelRankFromLabel(level),
     joinDate: String(joinDate || ""),
     joinTs: null,
-    tenure: typeof legacy.tenure === "number" ? legacy.tenure : legacy.tenure ? Number(legacy.tenure) : null,
+    tenure: typeof legacy.tenure === "number" ? legacy.tenure : Number(legacy.tenure || 0) || null,
     dob: String(dob || ""),
     dobTs: null,
-    age: legacy.age ?? null,
+    age: typeof legacy.age === "number" ? legacy.age : legacy.age ? Number(legacy.age) : null,
     qualification: legacy.qualification || "",
     qualificationNew: legacy.qualificationNew || "",
     qualificationGroup: "Other",
@@ -79,27 +76,28 @@ function toRepoEmployee(legacy: any, idx: number): RepoEmployee {
   } as RepoEmployee;
 }
 
-export function transformLegacyEmployees(legacyEmployees: any[]): RepoEmployee[] {
-  return (legacyEmployees || []).map((e, i) => toRepoEmployee(e, i));
+export function transformLegacyEmployees(legacyEmployees: Record<string, any>[]): RepoEmployee[] {
+  return (legacyEmployees || []).map((employee, index) => toRepoEmployee(employee, index));
 }
 
-export function buildOrgFromLegacy(legacyEmployees: any[], overrides?: any) {
+export function buildOrgFromLegacy(legacyEmployees: Record<string, any>[], overrides?: Record<string, any>) {
   const employees = transformLegacyEmployees(legacyEmployees);
-  // The repo's buildOrgTree accepts overrides of a specific shape — keep pass-through
-  // so callers can provide heads/reporting objects if available.
-  // @ts-ignore - let the underlying function validate runtime shape.
-  const build = buildOrgTree(employees, overrides);
-  return build;
+  return buildOrgTree(employees, overrides as any);
 }
 
-export function layoutFromLegacy(legacyEmployees: any[], division?: string, department?: string) {
+export function layoutFromLegacy(legacyEmployees: Record<string, any>[], division?: string, department?: string) {
   const build = buildOrgFromLegacy(legacyEmployees);
-  const roots = build.roots;
+  const roots = division || department ? build.roots : build.roots;
   const layout = buildOrgLayout(roots);
-  return layout;
+  return { build, layout };
 }
 
-export function exportSvgFromLegacy(legacyEmployees: any[], opts: { title: string; subtitle?: string; footer?: string }) {
-  const layout = layoutFromLegacy(legacyEmployees);
-  return buildExportSvg(layout, { title: opts.title, subtitle: opts.subtitle || "", generatedBy: undefined, footer: opts.footer || "" });
+export function exportSvgFromLegacy(legacyEmployees: Record<string, any>[], opts: { title: string; subtitle?: string; footer?: string }) {
+  const { layout } = layoutFromLegacy(legacyEmployees);
+  return buildExportSvg(layout, {
+    title: opts.title,
+    subtitle: opts.subtitle || "",
+    generatedBy: undefined,
+    footer: opts.footer || "Made with ♥ by Mohibullah Afzalzada",
+  });
 }

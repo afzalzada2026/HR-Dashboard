@@ -13,3 +13,4 @@
 export * from "./organogram-levels";
 export * from "./orgtree";
 export * from "./orglayout";
+export * from "./legacy-to-mod";
