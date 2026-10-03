@@ -4,11 +4,11 @@ import { BadgeCheck, Building2, ChevronRight, Layers, Network, RotateCcw, Search
 import { useEffect, useMemo, useState } from "react";
 import { averageDepth, buildOrgTree, loadOrgOverrides, rankDivisionHeadCandidates, saveOrgOverrides, scopeRoots, type OrgOverrides } from "@/lib/orgtree";
 import { buildOrgLayout } from "@/lib/orglayout";
-import { buildOrgFromLegacy } from "@/lib/legacy-to-mod";
 import { fmtNum, fmtPct } from "@/lib/format";
 import { useDataStore } from "@/store/data";
 import { useUIStore } from "@/store/ui";
 import { Organogram } from "../org/Organogram";
+import LegacyOrgChart from "../org/LegacyOrgChart";
 import { DataGate } from "../shell/Chrome";
 import { Badge, Button, Card, CardTitle, PageHeader } from "../ui/primitives";
 
@@ -19,7 +19,7 @@ function OrgInner() {
   const [division, setDivision] = useState("");
   const [department, setDepartment] = useState("");
   const [query, setQuery] = useState("");
-  const legacyFlag = process.env.NEXT_PUBLIC_ORG_LEGACY === "true";
+  const useLegacyChart = String(process.env.NEXT_PUBLIC_ORG_LEGACY || "").toLowerCase() === "true";
 
   // Overrides load after mount so server and client render identical trees (no hydration error).
   const [overrides, setOverrides] = useState<OrgOverrides>({ heads: {}, reporting: {} });
@@ -28,15 +28,15 @@ function OrgInner() {
     return () => cancelAnimationFrame(frame);
   }, []);
 
-  const build = useMemo(
-    () => (legacyFlag ? buildOrgFromLegacy(filtered as any, overrides as any) : buildOrgTree(filtered, overrides)),
-    [filtered, overrides, legacyFlag],
-  );
+  const build = useMemo(() => buildOrgTree(filtered, overrides), [filtered, overrides]);
   const roots = useMemo(() => scopeRoots(build, division || undefined, department || undefined), [build, division, department]);
   const layout = useMemo(() => buildOrgLayout(roots), [roots]);
 
   const divisions = useMemo(() => [...new Set(filtered.map((e) => e.division).filter(Boolean))].sort(), [filtered]);
-  const departments = useMemo(() => (division ? [...new Set(filtered.filter((e) => e.division === division).map((e) => e.department).filter(Boolean))].sort() : []), [filtered, division]);
+  const departments = useMemo(
+    () => (division ? [...new Set(filtered.filter((e) => e.division === division).map((e) => e.department).filter(Boolean))].sort() : []),
+    [filtered, division],
+  );
   const candidates = useMemo(() => (division ? rankDivisionHeadCandidates(filtered, division, overrides.heads?.[division]) : []), [filtered, division, overrides]);
   const selectedHead = build.divisionHeads.get(division);
 
@@ -54,7 +54,9 @@ function OrgInner() {
   };
 
   const matched = query.trim()
-    ? filtered.filter((e) => `${e.fullName} ${e.title} ${e.department}`.toLowerCase().includes(query.trim().toLowerCase())).slice(0, 6)
+    ? filtered
+        .filter((e) => `${e.fullName} ${e.title} ${e.department}`.toLowerCase().includes(query.trim().toLowerCase()))
+        .slice(0, 6)
     : [];
 
   const scopeTitle = `${division || "All divisions"}${department ? ` · ${department}` : ""}`;
@@ -67,7 +69,7 @@ function OrgInner() {
         title="Organogram"
         icon={<Network />}
         subtitle={subtitle}
-        actions={legacyFlag ? <Badge tone="warning">Legacy org adapter enabled</Badge> : undefined}
+        actions={useLegacyChart ? <Badge tone="warning">Legacy org adapter enabled</Badge> : undefined}
       />
 
       <div className="glass animate-fade-up relative z-10 mb-3 rounded-2xl p-3" data-no-capture="true">
@@ -173,16 +175,27 @@ function OrgInner() {
       )}
 
       <div className="glass overflow-hidden rounded-2xl" data-export-expand="true">
-        <Organogram
-          layout={layout}
-          roots={roots}
-          divisionEmployees={division ? filtered.filter((employee) => employee.division === division) : undefined}
-          division={division || undefined}
-          title={`Organization Chart · ${scopeTitle}`}
-          subtitle={`L6 → L1 · ${subtitle}`}
-          generatedBy={session.name}
-          onOpenEmployee={openEmployee}
-        />
+        {useLegacyChart ? (
+          <LegacyOrgChart
+            employees={filtered}
+            division={division || undefined}
+            department={department || undefined}
+            title={`Organization Chart · ${scopeTitle}`}
+            subtitle={`L6 → L1 · ${subtitle}`}
+            onOpenEmployee={openEmployee}
+          />
+        ) : (
+          <Organogram
+            layout={layout}
+            roots={roots}
+            divisionEmployees={division ? filtered.filter((employee) => employee.division === division) : undefined}
+            division={division || undefined}
+            title={`Organization Chart · ${scopeTitle}`}
+            subtitle={`L6 → L1 · ${subtitle}`}
+            generatedBy={session.name}
+            onOpenEmployee={openEmployee}
+          />
+        )}
       </div>
 
       {build.quality.unmatched.length > 0 && (
