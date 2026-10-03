@@ -5,9 +5,10 @@ import { useMemo, useState } from "react";
 import { fmtNum, slugify, timestampSlug } from "@/lib/format";
 import { LEVEL_COLORS, downloadOrgSvg, downloadOrgVectorPdf, downloadOrgVisio, printOrgSvg, type OrgExportOpts } from "@/lib/org-export";
 import { ATOMA_CARD, RAIL_W, type LayerInfo, type LNode, type OrgLayout } from "@/lib/orglayout";
-import { buildDepartmentSheets, buildPrintLayout, buildPrintSheets, downloadPrintPack, type Paper } from "@/lib/orgprint";
+import { buildDepartmentSheets, downloadPrintPack, fitPrintPack, type Paper } from "@/lib/orgprint";
 import type { Employee } from "@/lib/types";
 import { employeeStatus, type OrgNode } from "@/lib/orgtree";
+import { useUIStore } from "@/store/ui";
 import { Badge, IconButton, Spinner } from "../ui/primitives";
 
 const levelColor = (level?: string) => LEVEL_COLORS[(level ?? "L2") as keyof typeof LEVEL_COLORS] ?? "#64748B";
@@ -78,6 +79,7 @@ export function Organogram({ layout, roots, divisionEmployees, division, title, 
   const [zoom, setZoom] = useState(1);
   const [busy, setBusy] = useState<string | null>(null);
   const [paper, setPaper] = useState<Paper>("A3");
+  const notify = useUIStore((state) => state.notify);
   const options: OrgExportOpts = useMemo(() => ({ title, subtitle, generatedBy, footer: "Made with \u2665 by Mohibullah Afzalzada" }), [title, subtitle, generatedBy]);
   const people = useMemo(() => layout.nodes.reduce((a, n) => a + (n.kind === "group" ? n.members?.length ?? 0 : 1), 0), [layout]);
   const groups = layout.nodes.filter((n) => n.kind === "group").length;
@@ -90,8 +92,9 @@ export function Organogram({ layout, roots, divisionEmployees, division, title, 
       else if (kind === "pdf") await downloadOrgVectorPdf(layout, options);
       else if (kind === "visio") await downloadOrgVisio(layout, options);
       else if (kind === "pack") {
-        const sheets = buildPrintSheets(buildPrintLayout(roots, paper), paper);
-        await downloadPrintPack(sheets, options, paper, `org-chart-${slugify(title)}-${paper.toLowerCase()}-${timestampSlug()}.pdf`);
+        const pack = fitPrintPack(roots, paper);
+        await downloadPrintPack(pack.sheets, options, pack.paper, `org-chart-${slugify(title)}-${pack.paper.toLowerCase()}-${timestampSlug()}.pdf`);
+        notify("success", "Print pack ready", `${pack.sheets.length} sheet(s) on ${pack.paper} — type prints at ${(11.5 * pack.scale).toFixed(1)} pt.`);
       } else if (kind === "dept") {
         if (divisionEmployees && division) {
           const sheets = buildDepartmentSheets(divisionEmployees, division, paper);
@@ -164,8 +167,8 @@ export function Organogram({ layout, roots, divisionEmployees, division, title, 
             );
           })}
 
-          {/* right-hand level rail: bold code + employee count circle */}
-          <div className="absolute top-0 bg-amber-200/85" style={{ right: 0, width: RAIL_W, height: layout.height }}>
+          {/* level board on the LEFT: bold code + employee count circle */}
+          <div className="absolute top-0 bg-amber-200/85" style={{ left: 0, width: RAIL_W, height: layout.height }}>
             {layout.layers.map((layer: LayerInfo) => {
               const top = Math.max(0, layer.offset - layout.gapMain / 2);
               const height = layer.size + layout.gapMain;
@@ -184,9 +187,18 @@ export function Organogram({ layout, roots, divisionEmployees, division, title, 
           </div>
 
           <svg className="pointer-events-none absolute inset-0" width={layout.width} height={layout.height} aria-hidden>
+            <defs>
+              <marker id="orgArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+                <path d="M0,0 L10,5 L0,10 z" fill="#1F2937" />
+              </marker>
+              <marker id="orgArrowInferred" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+                <path d="M0,0 L10,5 L0,10 z" fill="#F59E0B" />
+              </marker>
+            </defs>
             {layout.edges.map((edge) => (
               <path
                 key={edge.id}
+                markerEnd={edge.inferred ? "url(#orgArrowInferred)" : "url(#orgArrow)"}
                 d={edge.d}
                 fill="none"
                 stroke={edge.inferred ? "#F59E0B" : "#1F2937"}

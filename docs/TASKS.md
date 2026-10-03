@@ -26,6 +26,22 @@ Legend: `[x]` complete, `[ ]` backlog, `[!]` production dependency/decision.
 - [x] Org chart verified: no overlaps, no level mismatches, level board on the left, print sheets at ~1:1 scale.
 - [x] Full gate: lint, route types, TypeScript, no-database build, startup/health, production audit 0.
 
+## Current release — A→Z sanitation
+
+- [x] Unified renderer: SVG/PDF/print/Visio all draw from `orgprint.ts`.
+- [x] Print packs auto-select the smallest readable paper (A4→A3→A2).
+- [x] Built-in `/api/selftest` + Security → Run system check (15 invariants).
+- [x] Server-render sweep: 11 views × 5 scopes + shell render cleanly.
+- [x] Production dependency audit: 0 vulnerabilities.
+
+## Current release — org chart clarity
+
+- [x] Top of chart centred; branches balanced left/right of every manager.
+- [x] Connectors routed through row gaps + left gutter with arrowheads — zero line/card crossings.
+- [x] Level board moved to the left across screen, SVG, PDF and Visio.
+- [x] Sheet width bounded to the paper budget (print scale ≥ 0.7 pt/px).
+- [x] Geometry suite enforces centring, balance, absolute bands, no overlap and no crossings.
+
 ## Data ingestion and quality
 
 - [x] Excel/CSV drag-drop and browse.

@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Cloud, Database, EyeOff, FileClock, HardDrive, KeyRound, Lock, LockKeyhole, RefreshCw, Search, ShieldCheck, UserCheck, Users, X } from "lucide-react";
+import { Check, Cloud, Database, EyeOff, FileClock, HardDrive, KeyRound, Lock, LockKeyhole, RefreshCw, Search, ShieldCheck, Stethoscope, UserCheck, Users, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { cn, fmtDateTime, fmtNum } from "@/lib/format";
 import { LOCAL_ONLY } from "@/lib/mode";
@@ -168,6 +168,23 @@ export default function SecurityView() {
       .then(setSys)
       .catch(() => setSys(null));
   }, []);
+  const [report, setReport] = useState<{ ok: boolean; generatedAt: string; summary: string; checks: { name: string; pass: boolean; detail: string }[] } | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [testError, setTestError] = useState("");
+  const runSelfTest = async () => {
+    setChecking(true);
+    setTestError("");
+    try {
+      const res = await fetch("/api/selftest", { cache: "no-store" });
+      const data = await res.json();
+      setReport(data);
+      if (!res.ok) setTestError(data.error || "The system check could not complete.");
+    } catch {
+      setTestError("The system check endpoint is unavailable in this deployment.");
+    } finally {
+      setChecking(false);
+    }
+  };
   const role = ROLES[session.role];
   const policies = LOCAL_ONLY
     ? [
@@ -255,6 +272,41 @@ export default function SecurityView() {
 
       <div className="mt-4"><UserManagement /></div>
 
+      <Card className="animate-fade-up mt-4">
+        <CardTitle
+          icon={<Stethoscope />}
+          title="System check"
+          subtitle="Runs the full invariant suite: import, movement metrics, org-chart geometry, map data, exports and print packing"
+          actions={
+            <Button size="sm" variant="primary" onClick={runSelfTest} disabled={checking}>
+              {checking ? <Spinner /> : <Stethoscope />} Run system check
+            </Button>
+          }
+        />
+        {testError && <p className="rounded-xl border border-danger/30 bg-danger/8 px-3 py-2 text-[12px] text-danger">{testError}</p>}
+        {!report ? (
+          <p className="text-[12px] text-muted">Nothing has been run in this session yet. The check generates a temporary sample workforce inside the browser/server, verifies the invariants, and stores no data.</p>
+        ) : (
+          <>
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <Badge tone={report.ok ? "success" : "danger"}>{report.ok ? "All checks passed" : "Attention required"}</Badge>
+              <Badge tone="neutral">{report.summary}</Badge>
+              <span className="text-[11px] text-subtle">{new Date(report.generatedAt).toLocaleString()}</span>
+            </div>
+            <div className="grid gap-2 md:grid-cols-2">
+              {report.checks.map((item) => (
+                <div key={item.name} className={cn("flex items-start gap-2 rounded-xl border p-2.5", item.pass ? "border-success/25 bg-success/6" : "border-danger/30 bg-danger/6")}>
+                  {item.pass ? <Check className="mt-0.5 h-4 w-4 text-success" /> : <X className="mt-0.5 h-4 w-4 text-danger" />}
+                  <div className="min-w-0">
+                    <p className="text-[12px] font-semibold text-fg">{item.name}</p>
+                    <p className="text-[11px] text-muted">{item.detail}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </Card>
       <Card className="animate-fade-up mt-4">
         <CardTitle icon={<ShieldCheck />} title="Role-based access control" subtitle="Permission matrix · your current role is highlighted" />
         <div className="-mx-4 overflow-x-auto sm:-mx-5">

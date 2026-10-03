@@ -1,8 +1,44 @@
 import { ATOMA_MARK_PATHS } from "./brand";
 import { downloadBlob } from "./format";
 import { buildOrgLayout, groupCardGrid, type LNode, type OrgLayout } from "./orglayout";
-import type { OrgExportOpts } from "./org-export";
-import { LEVEL_COLORS } from "./org-export";
+import type { OrgLevelCode } from "./organogram-levels";
+
+export interface OrgExportOpts {
+  title: string;
+  subtitle: string;
+  generatedBy?: string;
+  footer?: string;
+}
+
+export const LEVEL_COLORS: Record<OrgLevelCode, string> = {
+  L6: "#062B5B",
+  L5: "#0D47A1",
+  L4: "#1E6FE0",
+  L3H: "#F59E0B",
+  L3: "#00A8FF",
+  L2: "#64748B",
+  L1: "#94A3B8",
+};
+
+/** Prints one sheet on a landscape page via a hidden frame (same geometry as every export). */
+export function printSheetSvg(sheet: PrintSheet, opts: OrgExportOpts): boolean {
+  const svg = buildSheetSvg(sheet, opts);
+  const frame = document.createElement("iframe");
+  frame.setAttribute("aria-hidden", "true");
+  frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;opacity:0";
+  document.body.appendChild(frame);
+  const doc = frame.contentWindow?.document;
+  if (!doc) return false;
+  doc.open();
+  doc.write(`<!doctype html><html><head><title>${opts.title}</title><style>@page{size:landscape;margin:6mm}html,body{margin:0;background:#fff}svg{width:100%;height:auto;display:block}</style></head><body>${svg}</body></html>`);
+  doc.close();
+  setTimeout(() => {
+    frame.contentWindow?.focus();
+    frame.contentWindow?.print();
+    setTimeout(() => frame.remove(), 2000);
+  }, 250);
+  return true;
+}
 import { buildOrgTree, employeeStatus, scopeRoots, type OrgNode } from "./orgtree";
 import type { Employee } from "./types";
 
@@ -104,6 +140,34 @@ export function buildPrintSheets(layout: OrgLayout, paper: Paper): PrintSheet[] 
 }
 
 /** One sheet per department (division head retained on top) for large divisions. */
+export interface PrintPack {
+  paper: Paper;
+  sheets: PrintSheet[];
+  scale: number;
+}
+
+function packScale(layout: OrgLayout, paper: Paper): number {
+  const [pw, ph] = PAPERS[paper];
+  return Math.min((pw - 52) / layout.width, (ph - 96) / layout.height);
+}
+
+/**
+ * Builds a print pack on the smallest paper that keeps type readable (≥ 0.7 pt per
+ * design px ≈ designed size), growing A4 → A3 → A2 only when the chart needs it.
+ */
+export function fitPrintPack(roots: OrgNode[], preferred: Paper = "A3"): PrintPack {
+  const order: Paper[] = ["A4", "A3", "A2"];
+  let paper = order.includes(preferred) ? preferred : "A3";
+  for (let i = order.indexOf(paper); i < order.length; i++) {
+    paper = order[i];
+    const layout = buildPrintLayout(roots, paper);
+    const sheets = buildPrintSheets(layout, paper);
+    const worst = Math.min(...sheets.map((sheet) => packScale(sheet.layout, paper)));
+    if (worst >= 0.7 || i === order.length - 1) return { paper, sheets, scale: worst };
+  }
+  return { paper, sheets: [], scale: 0 };
+}
+
 export function buildDepartmentSheets(employees: Employee[], division: string, paper: Paper): PrintSheet[] {
   const build = buildOrgTree(employees);
   const departments = [...new Set(employees.filter((e) => e.division === division).map((e) => e.department))].sort();
@@ -190,8 +254,11 @@ export function buildSheetSvg(sheet: PrintSheet, opts: OrgExportOpts): string {
       <text x="${railX + 27}" y="${start + headerH + size / 2 + 17}" text-anchor="middle" font-size="9" font-weight="700" fill="#fff">${L.count}</text>`;
     })
     .join("");
-  const edges = layout.edges
-    .map((e) => `<path d="${e.d}" fill="none" stroke="${e.inferred ? "#F59E0B" : "#1F2937"}" stroke-width="1.2" ${e.inferred || e.kind === "staff" ? 'stroke-dasharray="5 4"' : ""}/>`)
+  const edges = `<defs>
+    <marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1F2937"/></marker>
+    <marker id="b" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#F59E0B"/></marker>
+  </defs>` + layout.edges
+    .map((e) => `<path d="${e.d}" fill="none" stroke="${e.inferred ? "#F59E0B" : "#1F2937"}" stroke-width="1.2" marker-end="${e.inferred ? "url(#b)" : "url(#a)"}" ${e.inferred || e.kind === "staff" ? 'stroke-dasharray="5 4"' : ""}/>`)
     .join("");
   const nodes = layout.nodes.map((n) => (n.kind === "group" ? groupSvg(n) : cardSvg(n))).join("");
   return `<?xml version="1.0" encoding="UTF-8"?>

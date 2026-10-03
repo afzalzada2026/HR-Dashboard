@@ -240,107 +240,124 @@ export function layoutOrg(roots: OrgNode[], opts: LayoutOpts): OrgLayout {
   }
   const tidyWidth = Math.max(720, cursorX - o.gapCross * 2 + o.padding);
 
-  // ── 3. rows: one row per level, wrapped into continuation rows when too wide ─
-  const rowOf = new Map<string, number>();
-  const rowNodes: LNode[][] = [];
-  const rowMeta: { level: string; actualPosition: number; continuation: boolean; groups: number }[] = [];
-  const rowsByLevel = new Map<number, LNode[][]>();
-
+  // ── 3. rows: absolute level bands; keep the balanced tidy x unless a row is too wide ──
   const levelNodes = new Map<number, LNode[]>();
   for (const n of nodes) levelNodes.set(n.layer, [...(levelNodes.get(n.layer) ?? []), n]);
+  const rowOf = new Map<string, number>();
+  const rows: { nodes: LNode[]; level: number; continuation: boolean; repack: boolean }[] = [];
+
   for (const level of [...levelNodes.keys()].sort((a, b) => a - b)) {
     const inLevel = (levelNodes.get(level) ?? []).sort((a, b) => a.x - b.x);
+    const minX = inLevel.reduce((m, n) => Math.min(m, n.x - sizeOf(n).w / 2), Infinity);
+    const maxX = inLevel.reduce((m, n) => Math.max(m, n.x + sizeOf(n).w / 2), -Infinity);
+    const tooWide = Number.isFinite(o.maxRowWidth) && maxX - minX > o.maxRowWidth - (o.padding + o.gutter) * 2;
+    if (!tooWide) {
+      rows.push({ nodes: inLevel, level, continuation: false, repack: false });
+      continue;
+    }
+    // Wrap only when needed: split at parent-group boundaries into continuation rows.
     const groups = new Map<string, LNode[]>();
     for (const n of inLevel) groups.set(n.groupKey, [...(groups.get(n.groupKey) ?? []), n]);
-    const orderedGroups = [...groups.values()].sort((a, b) => Math.min(...a.map((n) => n.x)) - Math.min(...b.map((n) => n.x)));
-    const chunks: LNode[][] = [];
+    const ordered = [...groups.values()].sort((a, b) => a.reduce((m, n) => Math.min(m, n.x), Infinity) - b.reduce((m, n) => Math.min(m, n.x), Infinity));
     let current: LNode[] = [];
     let currentWidth = o.padding + o.gutter;
-    for (const group of orderedGroups) {
-      const groupWidth = group.reduce((a, n) => a + n.w, 0) + Math.max(0, group.length - 1) * o.gapCross;
-      const groupGap = current.length ? o.gapCross * 1.5 : 0;
-      if (current.length && currentWidth + groupGap + groupWidth > o.maxRowWidth) {
-        chunks.push(current);
-        current = [];
-        currentWidth = o.padding + o.gutter;
-      }
+    let chunk = 0;
+    const flush = () => {
+      if (!current.length) return;
+      rows.push({ nodes: current, level, continuation: chunk > 0, repack: true });
+      chunk++;
+      current = [];
+      currentWidth = o.padding + o.gutter;
+    };
+    for (const group of ordered) {
+      const groupWidth = group.reduce((a, n) => a + sizeOf(n).w, 0) + Math.max(0, group.length - 1) * o.gapCross;
+      const gap = current.length ? o.gapCross * 1.5 : 0;
+      if (current.length && currentWidth + gap + groupWidth > o.maxRowWidth) flush();
       current.push(...group);
-      currentWidth += groupGap + groupWidth;
+      currentWidth += gap + groupWidth;
     }
-    if (current.length) chunks.push(current);
-    if (!chunks.length) chunks.push([]);
-    rowsByLevel.set(level, chunks);
+    flush();
   }
 
-  // ── 4. assign row indices and y offsets; re-pack x inside each row ──────────
-  let rowCursor = 0;
-  for (const level of [...rowsByLevel.keys()].sort((a, b) => a - b)) {
-    const chunks = rowsByLevel.get(level)!;
-    chunks.forEach((chunk, chunkIndex) => {
-      const levelCode = LEVEL_ORDER[level] ?? "L2";
-      const size = Math.max(o.card.h, ...chunk.map((n) => sizeOf(n).h));
-      const rowIndex = rowNodes.length;
-      rowNodes.push(chunk);
-      rowMeta.push({ level: levelCode, actualPosition: level, continuation: chunkIndex > 0, groups: new Set(chunk.map((n) => n.groupKey)).size });
-      for (const n of chunk) {
-        rowOf.set(n.id, rowIndex);
-        n.layer = rowIndex;
-      }
-      // Re-pack this row tightly, keeping siblings/rosters grouped.
-      const rowGroups = new Map<string, LNode[]>();
-      for (const n of chunk) rowGroups.set(n.groupKey, [...(rowGroups.get(n.groupKey) ?? []), n]);
-      const ordered = [...rowGroups.values()].sort((a, b) => a[0].x - b[0].x);
+  // ── 4. y offsets per row; re-pack only the rows that had to wrap ─────────────
+  let cursorY = o.padding;
+  const layers: LayerInfo[] = [];
+  rows.forEach((row, index) => {
+    const size = row.nodes.reduce((m, n) => Math.max(m, sizeOf(n).h), o.card.h);
+    layers.push({
+      index,
+      actualPosition: row.level,
+      level: (LEVEL_ORDER[row.level] ?? "L2") as OrgLevelCode,
+      band: bandLabel((LEVEL_ORDER[row.level] ?? "L2") as OrgLevelCode),
+      offset: cursorY,
+      size,
+      count: row.nodes.reduce((a, n) => a + (n.kind === "group" ? n.members!.length : 1), 0),
+      continuation: row.continuation,
+    });
+    if (row.repack) {
+      const groups = new Map<string, LNode[]>();
+      for (const n of row.nodes) groups.set(n.groupKey, [...(groups.get(n.groupKey) ?? []), n]);
+      const ordered = [...groups.values()].sort((a, b) => a.reduce((m, n) => Math.min(m, n.x), Infinity) - b.reduce((m, n) => Math.min(m, n.x), Infinity));
       let x = o.padding + o.gutter;
       for (const group of ordered) {
-        const groupWidth = group.reduce((a, n) => a + n.w, 0) + Math.max(0, group.length - 1) * o.gapCross;
-        let gx = x;
+        let cursor = x;
         for (const n of group) {
-          n.x = gx;
-          n.y = rowCursor + o.padding;
-          gx += n.w + o.gapCross;
+          n.x = cursor + sizeOf(n).w / 2;
+          cursor += sizeOf(n).w + o.gapCross;
         }
-        x += groupWidth + o.gapCross * 1.5;
+        x = cursor + o.gapCross * 0.5;
       }
-      // Guarantee a minimum gap inside the row (no overlaps, ever).
-      const rowSorted = [...chunk].sort((a, b) => a.x - b.x);
-      let rightEdge = -Infinity;
-      for (const n of rowSorted) {
-        const w = sizeOf(n).w;
-        if (n.x < rightEdge + 8) n.x = rightEdge + 8;
-        rightEdge = n.x + w;
-      }
-      rowCursor += size + o.gapMain;
-    });
-  }
+    }
+    for (const n of row.nodes) {
+      rowOf.set(n.id, index);
+      n.layer = index;
+      n.y = cursorY;
+    }
+    cursorY += size + o.gapMain;
+  });
 
-  const layers: LayerInfo[] = rowNodes.map((chunk, index) => ({
-    index,
-    actualPosition: rowMeta[index].actualPosition,
-    level: rowMeta[index].level,
-    band: bandLabel(rowMeta[index].level as OrgLevelCode),
-    offset: index === 0 ? 0 : (rowNodes.slice(0, index).reduce((a, _, i) => a + Math.max(o.card.h, ...rowNodes[i].map((n) => sizeOf(n).h)) + o.gapMain, 0)),
-    size: Math.max(o.card.h, ...chunk.map((n) => sizeOf(n).h)),
-    count: chunk.reduce((a, n) => a + (n.kind === "group" ? n.members!.length : 1), 0),
-    continuation: rowMeta[index].continuation,
-  }));
-
+  // Staff officers sit laterally beside their manager on the manager's row.
   for (const n of nodes) {
-    const row = layers[rowOf.get(n.id) ?? 0];
-    if (row) n.y = row.offset + o.padding;
+    if (n.kind !== "staff" || !n.parent) continue;
+    const parent = nodes.find((p) => p.id === n.parent);
+    if (parent) {
+      n.x = parent.x + parent.w + 30;
+      n.y = parent.y;
+      n.layer = parent.layer;
+    }
   }
 
-  // ── 5. overlap repair across the whole sheet ────────────────────────────────
-  for (const row of rowNodes) {
-    const sorted = [...row].sort((a, b) => a.x - b.x);
+  // ── 5. guarantee no two boxes overlap anywhere on the sheet ─────────────────
+  const rowBuckets = new Map<number, LNode[]>();
+  for (const n of nodes) rowBuckets.set(n.layer, [...(rowBuckets.get(n.layer) ?? []), n]);
+  for (const bucket of rowBuckets.values()) {
+    const sorted = [...bucket].sort((a, b) => a.x - b.x);
     let rightEdge = -Infinity;
     for (const n of sorted) {
       const w = sizeOf(n).w;
-      if (n.x < rightEdge + 8) n.x = rightEdge + 8;
-      rightEdge = n.x + w;
+      if (n.x - w / 2 < rightEdge + 10) n.x = rightEdge + 10 + w / 2;
+      rightEdge = n.x + w / 2;
     }
   }
 
-  // ── 6. connectors: bus between rows, spine fallback when a path is blocked ──
+  // ── 6. centre the top of the chart on the sheet; branches spread both ways ──
+  const rootNode = nodes.find((n) => n.id === (roots[0]?.id ?? ""));
+  let minX = Infinity;
+  let maxX = -Infinity;
+  for (const n of nodes) {
+    const w = sizeOf(n).w;
+    minX = Math.min(minX, n.x - w / 2);
+    maxX = Math.max(maxX, n.x + w / 2);
+  }
+  const margin = o.padding + o.gutter;
+  const halfSpan = rootNode ? Math.max(rootNode.x - minX, maxX - rootNode.x) : (maxX - minX) / 2;
+  const naturalWidth = halfSpan * 2 + margin * 2;
+  const contentWidth = maxX - minX + margin * 2;
+  const sheetWidth = Number.isFinite(o.maxRowWidth) ? Math.max(720, Math.min(naturalWidth, Math.max(contentWidth, o.maxRowWidth))) : Math.max(720, naturalWidth);
+  const shift = rootNode ? sheetWidth / 2 - rootNode.x : 0;
+  for (const n of nodes) n.x += shift;
+
+  // ── 7. orthogonal connectors: bus under the parent row, arrows at each child ──
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const blocks = (x: number, y1: number, y2: number, except: Set<string>) => {
     const lo = Math.min(y1, y2);
@@ -355,7 +372,7 @@ export function layoutOrg(roots: OrgNode[], opts: LayoutOpts): OrgLayout {
   };
   const edges: LEdge[] = [];
   const pushEdge = (kind: LEdge["kind"], from: string, to: string, inferred: boolean, points: [number, number][]) =>
-    edges.push({ id: `${from}->${to}`, from, to, inferred, kind, points, d: points.map((p, i) => `${i ? "L" : "M"} ${p[0]} ${p[1]}`).join(" ") });
+    edges.push({ id: `${from}->${to}`, from, to, inferred, kind, points, d: points.map((pt, i) => `${i ? "L" : "M"} ${pt[0]} ${pt[1]}`).join(" ") });
 
   for (const n of nodes) {
     if (!n.parent) continue;
@@ -367,51 +384,69 @@ export function layoutOrg(roots: OrgNode[], opts: LayoutOpts): OrgLayout {
     if (n.kind === "staff") {
       const yMid = p.y + ps.h / 2;
       pushEdge("staff", p.id, n.id, inferred, [
-        [p.x + ps.w, yMid],
-        [n.x, yMid],
+        [p.x + ps.w / 2, yMid],
+        [n.x - ns.w / 2, yMid],
       ]);
       continue;
     }
-    const x1 = p.x + ps.w / 2;
-    const x2 = n.x + ns.w / 2;
+    const x1 = p.x;
+    const x2 = n.x;
     const y1 = p.y + ps.h;
     const y2 = n.y;
-    const bus = y1 + Math.max(12, (y2 - y1) / 2);
+    const parentRow = layers[rowOf.get(p.id) ?? 0];
+    const childRowIndex = rowOf.get(n.id) ?? 0;
+    // The distribution bar sits in the gap just below the manager's row, so each
+    // manager's fan is visually separate from every other manager's.
+    const busY = Math.min(parentRow.offset + parentRow.size + o.gapMain * 0.4, y2 - 16);
     const except = new Set([p.id, n.id]);
-    const clear = !blocks(x1, y1, bus, except) && !blocks(x2, bus, y2, except);
+    const horizontalClear = (y: number, from: number, to: number) => {
+      const lo = Math.min(from, to);
+      const hi = Math.max(from, to);
+      for (const other of nodes) {
+        if (except.has(other.id)) continue;
+        const sz = sizeOf(other);
+        if (other.y < y && other.y + sz.h > y && other.x - sz.w / 2 < hi && other.x + sz.w / 2 > lo) return false;
+      }
+      return true;
+    };
+    const direct = childRowIndex === layers[rowOf.get(p.id) ?? 0].index + 1;
+    const clear = direct && !blocks(x1, y1, busY, except) && !blocks(x2, busY, y2, except) && horizontalClear(busY, x1, x2);
     if (clear) {
       pushEdge("bus", p.id, n.id, inferred, [
         [x1, y1],
-        [x1, bus],
-        [x2, bus],
+        [x1, busY],
+        [x2, busY],
         [x2, y2],
       ]);
     } else {
-      const spine = o.padding + o.gutter - 18;
-      const channel = y2 - o.gapMain / 2;
+      // All horizontal legs travel in the gaps BETWEEN rows and all vertical travel
+      // happens in the left gutter, so a line can never cross a card.
+      const spine = o.padding + o.gutter - 26;
+      const parentChannel = parentRow.offset + parentRow.size + o.gapMain * 0.22;
+      const childChannel = (layers[childRowIndex]?.offset ?? y2) - o.gapMain * 0.22;
       pushEdge("spine", p.id, n.id, inferred, [
         [x1, y1],
-        [x1, y1 + 12],
-        [spine, y1 + 12],
-        [spine, channel],
-        [x2, channel],
+        [x1, parentChannel],
+        [spine, parentChannel],
+        [spine, childChannel],
+        [x2, childChannel],
         [x2, y2],
       ]);
     }
   }
 
-  let width = 0;
+  let width = sheetWidth;
   let height = 0;
   for (const n of nodes) {
     const s = sizeOf(n);
-    width = Math.max(width, n.x + s.w);
+    width = Math.max(width, n.x + s.w / 2 + margin);
     height = Math.max(height, n.y + s.h);
   }
   const wrapped = layers.some((l) => l.continuation);
   return {
     nodes,
     edges,
-    width: Math.max(720, width + o.padding),
+    width: Math.max(720, width),
     height: Math.max(220, height + o.padding),
     layers,
     levelOffset,
