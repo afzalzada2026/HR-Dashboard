@@ -73,7 +73,13 @@ function OrgInner() {
             </select>
           </label>
           <label className="relative">
-            <select className="field h-10 pl-9 disabled:cursor-not-allowed disabled:opacity-50" value={department} disabled={!division} onChange={(event) => setDepartment(event.target.value)} aria-label="Filter organogram by department">
+            <select 
+  className="field h-10 pl-9 disabled:cursor-not-allowed disabled:opacity-50" 
+  value={department} 
+  disabled={!division} 
+  onChange={(event) => setDepartment(event.target.value)} 
+  aria-label="Filter organogram by department"
+>
               <option value="">All departments</option>
               {departments.map((item) => (
                 <option key={item} value={item}>
