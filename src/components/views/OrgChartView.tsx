@@ -1,4 +1,4 @@
-use client";
+"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { averageDepth, buildOrgTree, loadOrgOverrides, rankDivisionHeadCandidates, saveOrgOverrides, scopeRoots, type OrgOverrides } from "@/lib/orgtree";
@@ -73,7 +73,7 @@ function OrgInner() {
             </select>
           </label>
           <label className="relative">
-            <select className="field h-10 pl-9 disabled:cursor-not-allowed disabled:opacity-50" value={department} disabled={!division} onChange={(event) => setDepartment(event.target.value)} aria-label="Filter organogram by department">
+            <select className="field h-10 pl-9 disabled:cursor-not-allowed disabled:opacity-50" value={department} disabled={!division} onChange={(event) => setDepartment(event.target.value)} aria[...]>
               <option value="">All departments</option>
               {departments.map((item) => (
                 <option key={item} value={item}>
@@ -110,10 +110,10 @@ function OrgInner() {
 
       {division && candidates.length > 0 && (
         <Card className="animate-fade-up mb-3">
-          <CardTitle title={`Division head — ${division}`} subtitle={`Currently: ${selectedHead?.emp.fullName ?? "unresolved"} · choose a different head if the reporting data is incomplete`} />
+          <CardTitle title={`Division head — ${division}`} subtitle={`Currently: ${selectedHead?.emp.fullName ?? "unresolved"} · choose a different head if the reporting data is incomplete`} />[...]
           <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
             {candidates.slice(0, 6).map((candidate) => (
-              <button key={candidate.key} type="button" onClick={() => setHead(candidate.key)} className={`rounded-xl border p-2.5 text-left transition-colors ${candidate.selected ? "border-accent/60 bg-accent/8" : "border-line hover:bg-surface-muted"}`}>
+              <button key={candidate.key} type="button" onClick={() => setHead(candidate.key)} className={`rounded-xl border p-2.5 text-left transition-colors ${candidate.selected ? "border-accen[...]
                 <div className="flex items-center justify-between gap-2">
                   <span className="truncate text-[12.5px] font-semibold text-fg">{candidate.employee.fullName}</span>
                   {candidate.selected && <Badge tone="success">Head</Badge>}
@@ -128,7 +128,7 @@ function OrgInner() {
       )}
 
       <div className="glass overflow-hidden rounded-2xl" data-export-expand="true">
-        <Organogram layout={layout} roots={roots} divisionEmployees={division ? filtered.filter((employee) => employee.division === division) : undefined} division={division || undefined} title={`Organization Chart · ${scopeTitle}`} subtitle={`L6 → L1 · ${subtitle}`} generatedBy={session.name} onOpenEmployee={openEmployee} />
+        <Organogram layout={layout} roots={roots} divisionEmployees={division ? filtered.filter((employee) => employee.division === division) : undefined} division={division || undefined} title={[...]
       </div>
 
       {build.quality.unmatched.length > 0 && (
@@ -142,7 +142,7 @@ function OrgInner() {
             ))}
           </div>
           <p className="mt-3 text-[11px] text-subtle">
-            Resolved by: {fmtNum(build.quality.byEmail)} e-mail · {fmtNum(build.quality.byNo)} employee number · {fmtNum(build.quality.byName)} name/fuzzy · {fmtNum(build.quality.inferred)} inferred · {fmtNum(build.quality.cycles)} cycles repaired · {fmtPct((build.quality.linked / Math.max(1, build.quality.total)) * 100)} linked.
+            Resolved by: {fmtNum(build.quality.byEmail)} e-mail · {fmtNum(build.quality.byNo)} employee number · {fmtNum(build.quality.byName)} name/fuzzy · {fmtNum(build.quality.inferred)} in[...] 
           </p>
         </Card>
       )}
