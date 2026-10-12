@@ -1,4 +1,4 @@
-use client";
+"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { averageDepth, buildOrgTree, loadOrgOverrides, rankDivisionHeadCandidates, saveOrgOverrides, scopeRoots, type OrgOverrides } from "@/lib/orgtree";
