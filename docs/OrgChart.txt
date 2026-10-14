@@ -1,0 +1,558 @@
+"use client";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { Employee } from "@/lib/types";
+import { useHR } from "@/lib/store";
+import { buildOrgTree, scopeRoots, ancestorIds, employeeOrgKey, type OrgNode, type OrgBuild } from "@/lib/orgtree";
+import { analyzeLevels, levelIndex, levelKey, resolveDirection, type LevelInfo, type SeniorityDirection } from "@/lib/levels";
+import { layoutOrg, groupCardGrid, type OrgLayout, type LNode } from "@/lib/orglayout";
+import { downloadOrgSvg, downloadOrgVisio, downloadOrgVectorPdf, downloadOrgPptx, printOrgSvg, type OrgExportOpts } from "@/lib/org-export";
+import { InfoTip } from "./InfoTip";
+import { Search, ZoomIn, ZoomOut, Maximize2, ChevronDown, ChevronRight, Users, Layers, GitBranch, AlertTriangle, CheckCircle2, ArrowUpDown, Building2, Network, Info, Link2, Link2Off, Hand, Briefcase, Clock3, FileCode2, FileText, Presentation, Printer, Loader2, Download, Workflow } from "lucide-react";
+
+const CARD = { w: 184, h: 100 };
+const COMPACT = { w: 152, h: 78 };
+const initials = (e: Employee) => `${e.firstName?.[0] ?? e.fullName?.[0] ?? ""}${e.lastName?.[0] ?? ""}`.toUpperCase();
+const uniq = (arr: string[]) => Array.from(new Set(arr.filter(Boolean))).sort();
+const empKey = (e: Employee) => `${e.employeeNo}|${e.email}|${e.fullName}`;
+const displayLevel = (label?: string) => (label || "—").replace(/^L/i, "");
+const positionStatus = (e: Employee) => {
+  const all = `${e.fullName} ${e.title} ${e.remarks}`.toLowerCase();
+  const vacant = !e.fullName || /\b(vacant|vacancy|unfilled|tbd|to be hired)\b/.test(all) || /^(unknown|vacant)$/i.test(e.fullName.trim());
+  const temporary = !vacant && /\b(temp|temporary|contract|contractor|acting|interim)\b/.test(all);
+  return { vacant, temporary };
+};
+/** Suppresses the click that follows a drag-to-pan gesture (module-level: one canvas interacts at a time). */
+const dragGuard = { moved: false };
+
+function useOrgModel(data: Employee[], pref: SeniorityDirection, headOverrides: Record<string, string>, reportingOverrides: Record<string, string>) {
+  const build = useMemo(() => buildOrgTree(data, pref, headOverrides, reportingOverrides), [data, pref, headOverrides, reportingOverrides]);
+  const levels = useMemo(() => analyzeLevels(data, build.direction), [data, build.direction]);
+  const lidx = useMemo(() => levelIndex(levels), [levels]);
+  const detection = useMemo(() => resolveDirection(pref, data), [pref, data]);
+  const levelOf = (e: Employee): LevelInfo | undefined => lidx.get(levelKey(e));
+  return { build, levels, levelOf, detection };
+}
+
+interface Ctx {
+  levelOf: (e: Employee) => LevelInfo | undefined;
+  matches: Set<string>;
+  dim: Set<string> | null;
+  compact: boolean;
+  interactive: boolean;
+  isOpen: (id: string) => boolean;
+  toggle: (id: string) => void;
+  select: (e: Employee) => void;
+}
+
+/* ---------------- cards ---------------- */
+function NodeCard({ ln, ctx }: { ln: LNode; ctx: Ctx }) {
+  const node = ln.node!;
+  const lvl = ctx.levelOf(node.emp);
+  const color = lvl?.color ?? "#94A3B8";
+  const open = ctx.isOpen(node.id);
+  const kids = node.children.length;
+  const dim = ctx.dim ? !ctx.dim.has(empKey(node.emp)) : false;
+  const hit = ctx.matches.has(node.id);
+  const status = positionStatus(node.emp);
+  const cardBg = status.temporary ? "#FEF08A" : status.vacant ? "rgba(255,255,255,0.5)" : undefined;
+  return (
+    <div
+      data-org-node={node.id}
+      onClick={() => { if (!ctx.interactive || dragGuard.moved) return; ctx.select(node.emp); }}
+      title={ln.inferred ? `Reporting line inferred from level — supervisor “${node.emp.supervisor || "—"}” not found in the dataset` : `${node.emp.fullName} · ${node.emp.title}`}
+      className={`card-solid-app absolute overflow-hidden rounded-lg text-left shadow-md transition-shadow ${ctx.interactive ? "cursor-pointer hover:shadow-xl" : ""} ${hit ? "ring-2 ring-[#00A8FF]" : ""} ${dim ? "opacity-35" : ""} ${ln.inferred || status.vacant ? "border-dashed" : ""}`}
+      style={{ left: ln.x, top: ln.y, width: ln.w, height: ln.h, borderColor: status.vacant ? "#64748B" : ln.inferred ? "#F59E0B" : undefined, background: cardBg }}
+    >
+      <div className="h-1.5" style={{ background: color }} />
+      <div className={ctx.compact ? "p-1.5" : "p-2"}>
+        <div className="flex items-start gap-2">
+          <span className={`grid shrink-0 place-items-center rounded-full font-bold text-white ${ctx.compact ? "h-7 w-7 text-[10px]" : "h-9 w-9 text-xs"}`} style={{ background: status.vacant ? "#64748B" : `linear-gradient(135deg, ${color}, #00A8FF)` }}>{status.vacant ? <Briefcase size={ctx.compact ? 12 : 15} /> : initials(node.emp)}</span>
+          <div className="min-w-0 flex-1">
+            <div className={`truncate font-extrabold ${status.temporary ? "text-slate-950" : "text-app"} ${ctx.compact ? "text-[11px]" : "text-xs"}`}>{status.vacant ? "VACANT" : node.emp.fullName}</div>
+            <div className={`leading-tight text-muted-app ${ctx.compact ? "line-clamp-1 text-[9px]" : "line-clamp-2 text-[10px]"}`}>{node.emp.title}</div>
+          </div>
+        </div>
+        <div className={`flex items-center gap-1 ${ctx.compact ? "mt-1" : "mt-1.5"}`}>
+          <span className="rounded-md px-1.5 py-0.5 text-[9px] font-extrabold text-white" style={{ background: color }}>{displayLevel(lvl?.label)}</span>
+          {!ctx.compact && <span className="truncate text-[9px] text-muted-app">{node.emp.department}</span>}
+          {kids > 0 && <span className="ml-auto flex items-center gap-0.5 rounded-md bg-black/5 px-1.5 py-0.5 text-[9px] font-bold text-muted-app" title={`${kids} direct · ${node.total - 1} total`}><Users size={9} /> {kids}</span>}
+          {status.temporary && <span className="text-amber-700" title="Temporary / contract position"><Clock3 size={11} /></span>}
+          {status.vacant && <span className="text-slate-500" title="Vacant position"><Briefcase size={11} /></span>}
+          {ln.inferred && <span className="text-amber-500" title="Inferred reporting line"><Link2Off size={11} /></span>}
+          {kids > 0 && ctx.interactive && (
+            <button onClick={(e) => { e.stopPropagation(); ctx.toggle(node.id); }} className="grid h-5 w-5 place-items-center rounded-md bg-[#0D47A1]/10 text-[#0D47A1] hover:bg-[#0D47A1] hover:text-white" title={open ? "Collapse" : "Expand"}>
+              {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TeamCard({ ln, ctx, levelLabel, color }: { ln: LNode; ctx: Ctx; levelLabel: string; color: string }) {
+  const members = ln.members!;
+  const grid = groupCardGrid(members.length);
+  const shown = members.slice(0, grid.visible);
+  return (
+    <div className="card-solid-app absolute overflow-hidden rounded-xl shadow-md" style={{ left: ln.x, top: ln.y, width: ln.w, height: ln.h, borderColor: color }}>
+      <div className="flex h-[34px] items-center gap-1.5 border-b border-app px-2.5 text-[10px] font-extrabold text-app">
+        <span className="rounded-md px-1.5 py-0.5 text-[9px] text-white" style={{ background: color }}>{displayLevel(levelLabel)}</span>
+        <Users size={11} className="text-[#00A8FF]" /> {members.length} {members.length === 1 ? "person" : "people"} at this level
+      </div>
+      <div className="grid gap-x-1 px-1.5 pt-1" style={{ gridTemplateColumns: `repeat(${grid.cols}, minmax(0, 1fr))` }}>
+        {shown.map((m) => {
+          const dim = ctx.dim ? !ctx.dim.has(empKey(m.emp)) : false;
+          const status = positionStatus(m.emp);
+          return (
+            <button key={m.id} data-org-node={m.id} onClick={() => { if (!ctx.interactive || dragGuard.moved) return; ctx.select(m.emp); }} title={`${m.emp.title} · ${m.emp.department}`} className={`flex h-[26px] items-center gap-1.5 rounded-md px-1 text-left ${status.temporary ? "bg-yellow-200 text-slate-950" : status.vacant ? "border border-dashed border-slate-400" : ""} ${ctx.interactive ? "hover:bg-[#0D47A1]/10" : ""} ${ctx.matches.has(m.id) ? "ring-2 ring-[#00A8FF]" : ""} ${dim ? "opacity-35" : ""}`}>
+              <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full text-[8px] font-bold text-white" style={{ background: color }}>{status.vacant ? <Briefcase size={10} /> : initials(m.emp)}</span>
+              <span className="min-w-0"><span className={`block truncate text-[10px] font-bold leading-tight ${status.temporary ? "text-slate-950" : "text-app"}`}>{status.vacant ? "VACANT" : m.emp.fullName}</span><span className="block truncate text-[8.5px] leading-tight text-muted-app">{m.emp.title.split(",")[0]}</span></span>
+            </button>
+          );
+        })}
+      </div>
+      {members.length > shown.length && <div className="px-2 text-center text-[10px] font-semibold text-muted-app">+{members.length - shown.length} more</div>}
+    </div>
+  );
+}
+
+/* ---------------- canvas ---------------- */
+function OrgCanvas({ layout, levels, ctx, zoom, maxHeight, containerRef, interactive, scopeLabel }: {
+  layout: OrgLayout; levels: LevelInfo[]; ctx: Ctx; zoom: number; maxHeight?: number; containerRef: React.RefObject<HTMLDivElement | null>; interactive: boolean; scopeLabel: string;
+}) {
+  const drag = useRef<{ x: number; y: number; sl: number; st: number; moved: boolean } | null>(null);
+  const onDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!interactive || e.button !== 0) return;
+    const el = containerRef.current; if (!el) return;
+    drag.current = { x: e.clientX, y: e.clientY, sl: el.scrollLeft, st: el.scrollTop, moved: false };
+  };
+  const onMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const d = drag.current, el = containerRef.current; if (!d || !el) return;
+    const dx = e.clientX - d.x, dy = e.clientY - d.y;
+    if (!d.moved && Math.abs(dx) + Math.abs(dy) < 5) return;
+    d.moved = true; el.scrollLeft = d.sl - dx; el.scrollTop = d.st - dy;
+  };
+  const onUp = () => {
+    const moved = !!drag.current?.moved; drag.current = null;
+    if (moved) { dragGuard.moved = true; window.setTimeout(() => { dragGuard.moved = false; }, 0); }
+  };
+  return (
+    <div ref={containerRef} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={onUp}
+      className={`org-canvas scroll-thin relative rounded-xl border border-app bg-white/40 ${interactive ? "cursor-grab select-none overflow-auto active:cursor-grabbing" : "overflow-hidden"}`}
+      style={{ maxHeight }}>
+      <div style={{ width: layout.width * zoom, height: layout.height * zoom, position: "relative" }}>
+        <div style={{ width: layout.width, height: layout.height, transform: `scale(${zoom})`, transformOrigin: "0 0", position: "absolute", left: 0, top: 0 }}>
+          <div className="absolute bottom-0 top-0 bg-amber-200/75" style={{ left: 12, width: 48 }} />
+          {layout.layers.map((L) => {
+            const info = levels[L.actualPosition];
+            const start = Math.max(0, L.offset - layout.gapMain / 2);
+            const size = L.size + layout.gapMain;
+            return (
+              <div key={L.index} className="absolute left-0" style={{ top: start, width: layout.width, height: size, background: L.index % 2 ? "rgba(13,71,161,0.025)" : "transparent", borderTop: L.index > 0 ? "2px solid #F8B900" : undefined }}>
+                <div className="absolute flex flex-col items-center justify-center text-center" style={{ left: 12, top: 0, width: 48, height: size }}>
+                  <span className="text-xs font-extrabold text-slate-900">{displayLevel(info?.label)}{L.continuation ? " cont." : ""}</span>
+                  <span className="mt-0.5 text-[8px] font-semibold leading-tight text-slate-700">{L.count}</span>
+                </div>
+                <div className="absolute left-[66px] top-1 rounded-md bg-white/80 px-1.5 py-0.5 text-[9px] font-bold text-slate-600 shadow-sm">{info?.band ?? "Unspecified"}</div>
+              </div>
+            );
+          })}
+          <svg width={layout.width} height={layout.height} style={{ position: "absolute", left: 0, top: 0, pointerEvents: "none", overflow: "visible" }}>
+            {layout.edges.map((e) => <path key={e.id} d={e.d} fill="none" stroke={e.inferred ? "#F59E0B" : "#1F2937"} strokeWidth={e.inferred ? 1.5 : 1.2} strokeDasharray={e.inferred ? "5 4" : undefined} strokeLinejoin="round" strokeLinecap="round" />)}
+          </svg>
+          {layout.nodes.map((ln) => {
+            if (ln.kind === "node") return <NodeCard key={ln.id} ln={ln} ctx={ctx} />;
+            const info = levels[layout.layers[ln.layer]?.actualPosition ?? -1];
+            return <TeamCard key={ln.id} ln={ln} ctx={ctx} levelLabel={displayLevel(info?.label)} color={info?.color ?? "#94A3B8"} />;
+          })}
+          {layout.nodes.length === 0 && <div className="p-10 text-center text-xs text-muted-app">No employees in this scope.</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- level widgets ---------------- */
+export function LevelLegend({ levels, onPick, active }: { levels: LevelInfo[]; onPick?: (pos: number) => void; active?: number }) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {levels.map((l) => (
+        <button key={l.label} onClick={() => onPick?.(l.position)} disabled={!onPick} className={`flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[10px] font-bold transition-all ${active === l.position ? "border-[#00A8FF] bg-[#00A8FF]/10" : "border-app bg-white/40"} ${onPick ? "hover:border-[#00A8FF]" : ""}`} title={`${l.band} · avg age ${l.avgAge.toFixed(0)} · ${l.topTitles.join(", ")}`}>
+          <span className="h-2.5 w-2.5 rounded-full" style={{ background: l.color }} />
+          <span className="text-app">{displayLevel(l.label)}</span>
+          <span className="text-muted-app">{l.band}</span>
+          <span className="rounded-md bg-black/5 px-1 text-app">{l.count}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function LevelPyramid({ levels, total }: { levels: LevelInfo[]; total: number }) {
+  const max = Math.max(1, ...levels.map((l) => l.count));
+  return (
+    <div className="space-y-1">
+      {levels.map((l) => (
+        <div key={l.label} className="grid grid-cols-[52px_1fr_150px] items-center gap-2 text-[11px]">
+          <span className="rounded-md px-1.5 py-0.5 text-center font-extrabold text-white" style={{ background: l.color }}>{displayLevel(l.label)}</span>
+          <div className="flex justify-center"><div className="h-5 rounded-md" style={{ width: `${Math.max(3, (l.count / max) * 100)}%`, background: `linear-gradient(90deg, ${l.color}, ${l.color}bb)` }} /></div>
+          <span className="truncate text-muted-app"><b className="text-app">{l.count}</b> · {((l.count / Math.max(1, total)) * 100).toFixed(1)}% · {l.band}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function LevelLanes({ nodes, levels, ctx }: { nodes: OrgNode[]; levels: LevelInfo[]; ctx: Ctx }) {
+  const byLevel = useMemo(() => {
+    const m = new Map<string, OrgNode[]>();
+    nodes.forEach((n) => { const k = levelKey(n.emp); if (!m.has(k)) m.set(k, []); m.get(k)!.push(n); });
+    m.forEach((arr) => arr.sort((a, b) => b.total - a.total || a.emp.fullName.localeCompare(b.emp.fullName)));
+    return m;
+  }, [nodes]);
+  return (
+    <div className="space-y-2">
+      {levels.map((l) => {
+        const arr = byLevel.get(l.label) ?? [];
+        const shown = arr.slice(0, 48);
+        return (
+          <div key={l.label} className="grid gap-2 rounded-xl border border-app bg-white/30 p-2 lg:grid-cols-[190px_1fr]">
+            <div className="flex items-center gap-2 lg:border-r lg:border-app lg:pr-2">
+              <span className="rounded-md px-2 py-1 text-xs font-extrabold text-white" style={{ background: l.color }}>{displayLevel(l.label)}</span>
+              <div className="min-w-0"><div className="truncate text-xs font-extrabold text-app">{l.band}</div><div className="text-[10px] text-muted-app">{arr.length} · avg {l.avgAge.toFixed(0)} yrs · {l.female} F</div></div>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {shown.map((n) => (
+                <button key={n.id} data-org-node={n.id} onClick={() => ctx.select(n.emp)} title={`${n.emp.title} · ${n.emp.department}${n.children.length ? ` · ${n.children.length} direct reports` : ""}`} className={`flex items-center gap-1 rounded-lg border border-app bg-white/50 px-1.5 py-1 text-left hover:border-[#00A8FF] ${ctx.matches.has(n.id) ? "ring-2 ring-[#00A8FF]" : ""} ${ctx.dim && !ctx.dim.has(empKey(n.emp)) ? "opacity-35" : ""}`}>
+                  <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full text-[8px] font-bold text-white" style={{ background: l.color }}>{initials(n.emp)}</span>
+                  <span className="max-w-[120px] truncate text-[10px] font-bold text-app">{n.emp.fullName}</span>
+                  {n.children.length > 0 && <span className="rounded bg-black/5 px-1 text-[9px] font-bold text-muted-app">{n.children.length}</span>}
+                </button>
+              ))}
+              {arr.length > shown.length && <span className="self-center px-1 text-[10px] font-semibold text-muted-app">+{arr.length - shown.length} more</span>}
+              {arr.length === 0 && <span className="self-center text-[10px] text-muted-app">—</span>}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+const layerOfFactory = (levelOf: (e: Employee) => LevelInfo | undefined, fallback: number) => (n: OrgNode) => levelOf(n.emp)?.position ?? fallback;
+
+/* ---------------- interactive view ---------------- */
+export function OrgChartView({ data, highlight }: { data: Employee[]; highlight?: Employee[] }) {
+  const { setSelectedEmployee, seniorityDirection, setSeniorityDirection, filters, divisionHeadOverrides, setDivisionHeadOverride, reportingLineOverrides, setReportingLineOverride, perms } = useHR();
+  const { build, levels, levelOf, detection } = useOrgModel(data, seniorityDirection, divisionHeadOverrides, reportingLineOverrides);
+  const [division, setDivision] = useState(filters.divisions.length === 1 ? filters.divisions[0] : "");
+  const [department, setDepartment] = useState(filters.departments.length === 1 ? filters.departments[0] : "");
+  const [q, setQ] = useState("");
+  const [zoom, setZoom] = useState(1);
+  const [mode, setMode] = useState<"chart" | "lanes">("chart");
+  const [compact, setCompact] = useState(false);
+  // ATOMA divisions currently stay below 80 people: show the full division by default. Above 80,
+  // fall back to a leadership view; the export toolbar can still include the full hierarchy.
+  const initialDivision = filters.divisions.length === 1 ? filters.divisions[0] : "";
+  const initialScopeSize = initialDivision ? data.filter((e) => e.division === initialDivision).length : data.length;
+  const [expandPos, setExpandPos] = useState(filters.departments.length === 1 || (initialDivision && initialScopeSize <= 80) ? -1 : initialDivision ? 2 : 0);
+  const [expanded, setExpanded] = useState<Set<string> | null>(null);
+  const [showUnmatched, setShowUnmatched] = useState(false);
+  const [showHeadEditor, setShowHeadEditor] = useState(false);
+  const [lineEmployee, setLineEmployee] = useState("");
+  const [lineManager, setLineManager] = useState("");
+  const [exportFull, setExportFull] = useState(true);
+  const [exportBusy, setExportBusy] = useState<"" | "vsdx" | "pdf" | "pptx">("");
+  const [exportMsg, setExportMsg] = useState("");
+  const containerRef = useRef<HTMLDivElement>(null);
+  const layoutRef = useRef<OrgLayout | null>(null);
+
+  const divisions = useMemo(() => uniq(data.map((e) => e.division)), [data]);
+  const departments = useMemo(() => uniq(data.filter((e) => !division || e.division === division).map((e) => e.department)), [data, division]);
+  const roots = useMemo(() => scopeRoots(build, division || undefined, department || undefined), [build, division, department]);
+  const displayRoots = roots;
+  const inScope = useMemo(() => build.nodes.filter((n) => (!division || n.emp.division === division) && (!department || n.emp.department === department)), [build, division, department]);
+  const scopeLevels = useMemo(() => analyzeLevels(inScope.map((n) => n.emp), build.direction), [inScope, build.direction]);
+  const scopeLabel = department || division || "ATOMA";
+
+  const dim = useMemo(() => (highlight && highlight.length !== data.length ? new Set(highlight.map(empKey)) : null), [highlight, data]);
+  const matches = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    if (!s) return new Set<string>();
+    return new Set(build.nodes.filter((n) => `${n.emp.fullName} ${n.emp.title} ${n.emp.employeeNo} ${n.emp.department} ${n.emp.email}`.toLowerCase().includes(s)).map((n) => n.id));
+  }, [q, build]);
+  const limitSen = expandPos < 0 ? -Infinity : levels[Math.min(expandPos, Math.max(0, levels.length - 1))]?.sen ?? -Infinity;
+  const openSet = useMemo(() => {
+    const base = expanded ? new Set(expanded) : new Set(build.nodes.filter((n) => n.sen >= limitSen).map((n) => n.id));
+    matches.forEach((id) => ancestorIds(build, id).forEach((a) => base.add(a)));
+    displayRoots.forEach((r) => base.add(r.id));
+    return base;
+  }, [expanded, build, limitSen, matches, displayRoots]);
+
+  const layout = useMemo(() => layoutOrg(displayRoots, {
+    layerOf: layerOfFactory(levelOf, levels.length), isOpen: (id) => openSet.has(id), card: compact ? COMPACT : CARD,
+  }), [displayRoots, levelOf, levels.length, openSet, compact]);
+  useEffect(() => { layoutRef.current = layout; });
+  const exportOpen = useMemo(() => exportFull ? new Set(build.nodes.map((n) => n.id).concat(displayRoots.map((r) => r.id))) : openSet, [exportFull, build.nodes, displayRoots, openSet]);
+  const exportLayout = useMemo(() => layoutOrg(displayRoots, {
+    layerOf: layerOfFactory(levelOf, levels.length), isOpen: (id) => exportOpen.has(id), card: COMPACT,
+    groupThreshold: 4, groupMax: 1000,
+  }), [displayRoots, levelOf, levels.length, exportOpen]);
+  const exportOpts: OrgExportOpts = {
+    title: `ATOMA Organogram — ${department || division || "Whole Organization"}`,
+    subtitle: `${inScope.length.toLocaleString()} positions · levels ${levels[exportLayout.levelOffset]?.label?.replace(/^L/, "") || "—"} to ${levels[Math.min(levels.length - 1, exportLayout.levelOffset + exportLayout.layers.length - 1)]?.label?.replace(/^L/, "") || "—"} · ${exportFull ? "full hierarchy" : "current expansion"}`,
+    generatedBy: useHR.getState().session?.displayName,
+    footer: "Made with ♥ by Mohibullah Afzalzada",
+  };
+  const runExport = async (kind: "svg" | "vsdx" | "pdf" | "pptx" | "print") => {
+    setExportMsg("");
+    try {
+      if (kind === "svg") { downloadOrgSvg(exportLayout, levels, exportOpts); setExportMsg("Editable SVG downloaded — vector quality at any zoom."); }
+      if (kind === "vsdx") { setExportBusy("vsdx"); const stats = await downloadOrgVisio(exportLayout, levels, exportOpts); setExportMsg(`Editable Visio VSDX downloaded — ${stats.shapes} native shapes, ${stats.texts} text elements.`); }
+      if (kind === "pdf") { setExportBusy("pdf"); await downloadOrgVectorPdf(exportLayout, levels, exportOpts); setExportMsg("Single-page vector PDF downloaded."); }
+      if (kind === "pptx") { setExportBusy("pptx"); await downloadOrgPptx(exportLayout, levels, exportOpts); setExportMsg("Editable PowerPoint downloaded — cards, text and connector segments are shapes."); }
+      if (kind === "print") { if (!printOrgSvg(exportLayout, levels, exportOpts)) throw new Error("The browser blocked the print window. Allow pop-ups and try again."); setExportMsg("Print preview opened in a new window."); }
+      useHR.getState().log("Organogram export", `${kind.toUpperCase()} · ${department || division || "whole organization"} · ${exportFull ? "full" : "current"}`);
+    } catch (e) { setExportMsg(`Export failed: ${String(e).slice(0, 140)}`); }
+    setExportBusy("");
+  };
+
+  const fitKey = `${division}|${department}|${expandPos}|${compact}|${mode}`;
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      const c = containerRef.current, l = layoutRef.current;
+      if (!c || !l) return;
+      setZoom(Math.max(0.3, Math.min(1, (c.clientWidth - 24) / Math.max(1, l.width))));
+    }, 40);
+    return () => window.clearTimeout(id);
+  }, [fitKey]);
+
+  useEffect(() => {
+    if (!matches.size) return;
+    const id = window.setTimeout(() => {
+      const c = containerRef.current, l = layoutRef.current;
+      if (!c || !l) return;
+      const first = Array.from(matches)[0];
+      const ln = l.byId.get(first) ?? l.nodes.find((g) => g.kind === "group" && g.members!.some((m) => m.id === first));
+      if (!ln) return;
+      c.scrollTo({ left: (ln.x + ln.w / 2) * zoom - c.clientWidth / 2, top: (ln.y + ln.h / 2) * zoom - c.clientHeight / 2, behavior: "smooth" });
+    }, 120);
+    return () => window.clearTimeout(id);
+  }, [matches, zoom]);
+
+  const fit = () => { const c = containerRef.current; if (!c) return; setZoom(Math.max(0.3, Math.min(1, (c.clientWidth - 24) / Math.max(1, layout.width)))); };
+  const ctx: Ctx = {
+    levelOf, matches, dim, compact, interactive: true,
+    isOpen: (id) => openSet.has(id),
+    toggle: (id) => { const s = new Set(openSet); if (s.has(id)) s.delete(id); else s.add(id); setExpanded(s); },
+    select: (e) => setSelectedEmployee(e),
+  };
+  const qlt = build.quality;
+  const linkedPct = qlt.total ? (qlt.linked / qlt.total) * 100 : 0;
+  const order = levels.filter((l) => l.band !== "Unspecified").map((l) => displayLevel(l.label));
+  const statusCounts = useMemo(() => {
+    let vacant = 0, temporary = 0;
+    inScope.forEach((n) => { const s = positionStatus(n.emp); if (s.vacant) vacant++; else if (s.temporary) temporary++; });
+    return { vacant, temporary };
+  }, [inScope]);
+
+  return (
+    <div className="space-y-4">
+      {/* Controls */}
+      <div className="glass rounded-2xl p-3 sm:p-4">
+        <div className="grid gap-2 md:grid-cols-[1fr_1fr_1.3fr_auto]">
+          <label className="block">
+            <span className="text-[10px] font-bold uppercase tracking-wide text-muted-app"><Building2 size={11} className="mr-1 inline" />Division</span>
+            <select value={division} onChange={(e) => { setDivision(e.target.value); setDepartment(""); setExpanded(null); setExpandPos(e.target.value ? (data.filter((x) => x.division === e.target.value).length <= 80 ? -1 : (levels.find((l) => l.label === "L4")?.position ?? 2)) : 0); }} className="mt-1 w-full rounded-xl border border-app bg-white/60 px-3 py-2 text-xs font-semibold text-app outline-none focus:border-[#00A8FF]">
+              <option value="">Whole organization ({divisions.length} divisions)</option>
+              {divisions.map((d) => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-[10px] font-bold uppercase tracking-wide text-muted-app"><Network size={11} className="mr-1 inline" />Department {division && <span className="normal-case text-[#00A8FF]">· within {division}</span>}</span>
+            <select value={department} onChange={(e) => { setDepartment(e.target.value); setExpanded(null); setExpandPos(-1); }} className="mt-1 w-full rounded-xl border border-app bg-white/60 px-3 py-2 text-xs font-semibold text-app outline-none focus:border-[#00A8FF]">
+              <option value="">All departments ({departments.length})</option>
+              {departments.map((d) => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-[10px] font-bold uppercase tracking-wide text-muted-app"><Search size={11} className="mr-1 inline" />Find employee</span>
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Name, title, ID, department…" className="mt-1 w-full rounded-xl border border-app bg-white/60 px-3 py-2 text-xs text-app outline-none focus:border-[#00A8FF]" />
+          </label>
+          <div className="flex items-end gap-1">
+            <button onClick={() => setMode("chart")} className={`rounded-xl px-3 py-2 text-xs font-bold ${mode === "chart" ? "bg-[#0D47A1] text-white" : "border border-app text-app"}`} title="Hierarchy chart"><GitBranch size={14} /></button>
+            <button onClick={() => setMode("lanes")} className={`rounded-xl px-3 py-2 text-xs font-bold ${mode === "lanes" ? "bg-[#0D47A1] text-white" : "border border-app text-app"}`} title="Level swim-lanes"><Layers size={14} /></button>
+            {perms.manageUsers && <button onClick={() => setShowHeadEditor(!showHeadEditor)} className={`rounded-xl px-3 py-2 text-xs font-bold ${showHeadEditor ? "bg-amber-500 text-white" : "border border-app text-app"}`} title="Review / override division heads"><Briefcase size={14} /></button>}
+          </div>
+        </div>
+        {division && (
+          <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-app pt-2">
+            <span className="mr-1 text-[10px] font-bold uppercase tracking-wide text-muted-app">Department pages</span>
+            <button onClick={() => { setDepartment(""); setExpanded(null); setExpandPos(data.filter((e) => e.division === division).length <= 80 ? -1 : 2); }} className={`rounded-lg px-2 py-1 text-[10px] font-bold ${!department ? "bg-[#0D47A1] text-white" : "border border-app text-app hover:border-[#00A8FF]"}`}>All · {data.filter((e) => e.division === division).length}</button>
+            {departments.map((d) => <button key={d} onClick={() => { setDepartment(d); setExpanded(null); setExpandPos(-1); }} className={`rounded-lg px-2 py-1 text-[10px] font-bold ${department === d ? "bg-[#0D47A1] text-white" : "border border-app text-app hover:border-[#00A8FF]"}`}>{d} · {data.filter((e) => e.division === division && e.department === d).length}</button>)}
+          </div>
+        )}
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="text-[10px] font-bold uppercase tracking-wide text-muted-app">Expand down to</span>
+          <select value={expandPos} onChange={(e) => { setExpandPos(Number(e.target.value)); setExpanded(null); }} className="rounded-lg border border-app bg-white/60 px-2 py-1 text-xs font-semibold text-app outline-none">
+            {levels.filter((l) => l.band !== "Unspecified").map((l) => <option key={l.label} value={l.position}>{displayLevel(l.label)} · {l.band}</option>)}
+            <option value={-1}>Everyone</option>
+          </select>
+          <button onClick={() => setCompact(!compact)} className={`rounded-lg border px-2 py-1 text-[11px] font-bold ${compact ? "border-[#00A8FF] bg-[#00A8FF]/10 text-app" : "border-app text-app"}`}>Compact cards</button>
+          <div className="ml-auto flex items-center gap-1">
+            <button onClick={() => setZoom(Math.max(0.3, +(zoom - 0.1).toFixed(2)))} className="rounded-lg border border-app p-1.5 hover:border-[#00A8FF]"><ZoomOut size={14} /></button>
+            <span className="w-10 text-center text-[11px] font-bold text-app">{Math.round(zoom * 100)}%</span>
+            <button onClick={() => setZoom(Math.min(1.6, +(zoom + 0.1).toFixed(2)))} className="rounded-lg border border-app p-1.5 hover:border-[#00A8FF]"><ZoomIn size={14} /></button>
+            <button onClick={fit} className="rounded-lg border border-app px-2 py-1.5 text-[11px] font-bold hover:border-[#00A8FF]" title="Fit to width"><Maximize2 size={13} className="mr-1 inline" />Fit</button>
+          </div>
+        </div>
+      </div>
+
+      <div className="glass no-print rounded-2xl p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="flex items-center gap-1.5 text-xs font-extrabold text-app"><Download size={14} className="text-[#00A8FF]" /> Export / print this organogram</span>
+          <label className="flex items-center gap-1.5 rounded-lg border border-app bg-white/50 px-2 py-1.5 text-[11px] font-semibold text-app"><input type="checkbox" checked={exportFull} onChange={(e) => setExportFull(e.target.checked)} className="h-3.5 w-3.5 accent-[#0D47A1]" /> Full hierarchy (all levels)</label>
+          <span className="text-[10px] text-muted-app">Exports the selected {department ? "department" : division ? "division" : "organisation"}, not the scroll viewport.</span>
+          <div className="ml-auto flex flex-wrap gap-1.5">
+            <button onClick={() => runExport("svg")} disabled={!!exportBusy} className="flex items-center gap-1 rounded-lg border border-app px-2.5 py-1.5 text-[11px] font-bold text-app hover:border-[#00A8FF] disabled:opacity-50" title="Editable vector file for PowerPoint, Visio, Illustrator or Inkscape"><FileCode2 size={13} /> Editable SVG</button>
+            <button onClick={() => runExport("vsdx")} disabled={!!exportBusy} className="flex items-center gap-1 rounded-lg bg-[#284899] px-2.5 py-1.5 text-[11px] font-bold text-white hover:brightness-110 disabled:opacity-50" title="Native editable Microsoft Visio format (modern replacement for legacy .vsd)">{exportBusy === "vsdx" ? <Loader2 size={13} className="animate-spin" /> : <Workflow size={13} />} Editable Visio (.vsdx)</button>
+            <button onClick={() => runExport("pdf")} disabled={!!exportBusy} className="flex items-center gap-1 rounded-lg bg-[#0D47A1] px-2.5 py-1.5 text-[11px] font-bold text-white hover:bg-[#00A8FF] disabled:opacity-50">{exportBusy === "pdf" ? <Loader2 size={13} className="animate-spin" /> : <FileText size={13} />} Vector PDF · 1 page</button>
+            <button onClick={() => runExport("pptx")} disabled={!!exportBusy} className="flex items-center gap-1 rounded-lg bg-[#D97706] px-2.5 py-1.5 text-[11px] font-bold text-white hover:brightness-110 disabled:opacity-50">{exportBusy === "pptx" ? <Loader2 size={13} className="animate-spin" /> : <Presentation size={13} />} Editable PowerPoint</button>
+            <button onClick={() => runExport("print")} disabled={!!exportBusy} className="flex items-center gap-1 rounded-lg border border-app px-2.5 py-1.5 text-[11px] font-bold text-app hover:border-[#00A8FF] disabled:opacity-50"><Printer size={13} /> Print</button>
+          </div>
+        </div>
+        {exportMsg && <div className={`mt-2 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold ${exportMsg.startsWith("Export failed") ? "bg-red-500/10 text-red-600" : "bg-emerald-500/10 text-emerald-700"}`}>{exportMsg}</div>}
+        <div className="mt-1.5 text-[10px] text-muted-app">SVG and PDF are true vectors (lossless zoom). Visio VSDX contains native editable shapes/text; PowerPoint uses editable text boxes, position cards and connector line segments. The blue header appears once because the organogram is one page / one slide.</div>
+      </div>
+
+      {showHeadEditor && perms.manageUsers && (
+        <div className="glass rounded-2xl p-4 anim-fade-in">
+          <div className="mb-1 flex flex-wrap items-center gap-2 text-sm font-extrabold text-app"><Briefcase size={16} className="text-amber-500" /> Division-head assignments <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] text-amber-700">controls CEO → division links</span></div>
+          <p className="mb-3 text-[11px] text-muted-app">Automatic selection prioritises CIO / CMO / Chief / Head / Director titles, level, CEO reporting line and cross-department span. Select a person to override it; choose Automatic to return to the scoring model.</p>
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {divisions.map((d) => {
+              const choices = build.headCandidates.get(d) ?? [];
+              const selected = choices.find((c) => c.selected);
+              const value = divisionHeadOverrides[d] ?? "";
+              return (
+                <div key={d} className="rounded-xl border border-app bg-white/40 p-2.5">
+                  <div className="mb-1 flex items-center justify-between gap-2"><span className="truncate text-xs font-extrabold text-app">{d}</span><span className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold ${value ? "bg-amber-500/15 text-amber-700" : "bg-emerald-500/15 text-emerald-700"}`}>{value ? "manual" : "automatic"}</span></div>
+                  <select value={value} onChange={(e) => setDivisionHeadOverride(d, e.target.value || null)} className="w-full rounded-lg border border-app bg-white/70 px-2 py-1.5 text-[11px] font-semibold text-app outline-none focus:border-[#00A8FF]">
+                    <option value="">Automatic — {selected?.employee.fullName ?? "no candidate"}</option>
+                    {choices.map((c) => <option key={c.key} value={c.key}>{c.employee.fullName} — {c.employee.title} ({displayLevel(c.employee.actualLevel)})</option>)}
+                  </select>
+                  <div className="mt-1 line-clamp-2 text-[10px] text-muted-app">{selected?.reasons.slice(0, 3).join(" · ") || "No selection reason"}</div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-4 border-t border-app pt-3">
+            <div className="mb-1 text-xs font-extrabold text-app">Reporting-line exception</div>
+            <p className="mb-2 text-[10px] text-muted-app">Exact Supervisor Email / Employee No / name is used first, with fuzzy spelling support. Use this only when the HRIS manager text is still ambiguous.</p>
+            <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
+              <select value={lineEmployee} onChange={(e) => { const key = e.target.value; setLineEmployee(key); setLineManager(key ? (reportingLineOverrides[key] ?? "") : ""); }} className="rounded-lg border border-app bg-white/70 px-2 py-1.5 text-[11px] font-semibold text-app outline-none">
+                <option value="">Select employee…</option>
+                {[...data].sort((a, b) => a.fullName.localeCompare(b.fullName)).map((e) => <option key={`e-${employeeOrgKey(e)}`} value={employeeOrgKey(e)}>{e.fullName} — {e.title} ({e.division})</option>)}
+              </select>
+              <select value={lineManager} disabled={!lineEmployee} onChange={(e) => setLineManager(e.target.value)} className="rounded-lg border border-app bg-white/70 px-2 py-1.5 text-[11px] font-semibold text-app outline-none disabled:opacity-50">
+                <option value="">Use HRIS / automatic manager</option>
+                {[...data].filter((e) => employeeOrgKey(e) !== lineEmployee).sort((a, b) => a.fullName.localeCompare(b.fullName)).map((e) => <option key={`m-${employeeOrgKey(e)}`} value={employeeOrgKey(e)}>{e.fullName} — {e.title} ({displayLevel(e.actualLevel)})</option>)}
+              </select>
+              <button disabled={!lineEmployee} onClick={() => { setReportingLineOverride(lineEmployee, lineManager || null); }} className="rounded-lg bg-[#0D47A1] px-3 py-1.5 text-[11px] font-bold text-white disabled:opacity-50">Save line</button>
+            </div>
+            {lineEmployee && <div className="mt-1 text-[10px] text-muted-app">Current: {reportingLineOverrides[lineEmployee] ? "manual override" : "HRIS / automatic"}</div>}
+          </div>
+        </div>
+      )}
+
+      {/* Levels + quality */}
+      <div className="grid gap-4 xl:grid-cols-[1.2fr_1fr]">
+        <div className="glass rounded-2xl p-4">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-sm font-extrabold text-app"><Layers size={16} className="text-[#00A8FF]" /> Company levels · {department || division || "whole organization"} <InfoTip id="org-levels" /></div>
+            <div className="flex items-center gap-1.5 text-[11px]">
+              <span className="text-muted-app">Top → bottom:</span>
+              <span className="rounded-md bg-[#0D47A1]/10 px-1.5 py-0.5 font-bold text-[#0D47A1]">{order.join(" › ") || "—"}</span>
+              <button onClick={() => setSeniorityDirection(build.direction === "high-top" ? "low-top" : "high-top")} className="flex items-center gap-1 rounded-md border border-app px-1.5 py-0.5 font-bold text-app hover:border-[#00A8FF]" title={detection.reason}><ArrowUpDown size={11} /> Flip</button>
+              {seniorityDirection !== "auto" && <button onClick={() => setSeniorityDirection("auto")} className="rounded-md border border-app px-1.5 py-0.5 font-bold text-muted-app hover:border-[#00A8FF]" title="Detect from titles / headcount">Auto-detect</button>}
+            </div>
+          </div>
+          <div className="mb-2 flex items-start gap-1.5 text-[11px] text-muted-app"><Info size={12} className="mt-0.5 shrink-0" /> {detection.reason}</div>
+          <LevelPyramid levels={scopeLevels} total={inScope.length} />
+          <div className="mt-3"><LevelLegend levels={levels} onPick={(p) => { setExpandPos(p); setExpanded(null); }} active={expandPos} /></div>
+        </div>
+        <div className={`glass rounded-2xl p-4 ${linkedPct >= 90 ? "" : "border-amber-500/30"}`}>
+          <div className="mb-2 flex items-center gap-2 text-sm font-extrabold text-app">{linkedPct >= 90 ? <CheckCircle2 size={16} className="text-emerald-500" /> : <AlertTriangle size={16} className="text-amber-500" />} Reporting-line quality <InfoTip id="org-quality" /></div>
+          <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+            {[["Linked", `${linkedPct.toFixed(1)}%`, `${qlt.linked} of ${qlt.total}`], ["By e-mail", qlt.byEmail, "supervisor e-mail match"], ["By name / ID", qlt.byName + qlt.byNo, "name or employee no."], ["Inferred", qlt.inferred, "attached by level"]].map(([k, v, d]) => (
+              <div key={String(k)} className="rounded-xl border border-app bg-white/40 p-2"><div className="text-[10px] font-semibold text-muted-app">{k}</div><div className="text-base font-extrabold text-app">{v}</div><div className="text-[10px] text-muted-app">{d}</div></div>
+            ))}
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-muted-app">
+            <span className="flex items-center gap-1"><Link2 size={11} /> {qlt.roots} root{qlt.roots === 1 ? "" : "s"}{build.top ? ` · top: ${build.top.emp.fullName} (${levelOf(build.top.emp)?.label ?? "—"})` : ""}</span>
+            {qlt.cycles > 0 && <span className="text-amber-600">· {qlt.cycles} circular line{qlt.cycles > 1 ? "s" : ""} broken</span>}
+            {qlt.unmatched.length > 0 && <button onClick={() => setShowUnmatched(!showUnmatched)} className="ml-auto font-bold text-[#0D47A1] hover:underline">{showUnmatched ? "Hide" : "Show"} {qlt.unmatched.length} unmatched supervisor{qlt.unmatched.length > 1 ? "s" : ""}</button>}
+          </div>
+          {showUnmatched && (
+            <div className="scroll-thin mt-2 max-h-36 space-y-1 overflow-y-auto">
+              {qlt.unmatched.slice(0, 60).map((u) => <div key={u.name} className="flex items-center justify-between rounded-lg border border-dashed border-amber-500/40 bg-amber-500/5 px-2 py-1 text-[11px]"><span className="truncate font-semibold text-app">{u.name}</span><span className="text-muted-app">{u.count} report{u.count > 1 ? "s" : ""} · inferred</span></div>)}
+            </div>
+          )}
+          <div className="mt-2 text-[10px] text-muted-app">Dashed cards = inferred line. Fix by adding the supervisor&apos;s e-mail / employee number in the HRIS export.</div>
+        </div>
+      </div>
+
+      {/* Chart */}
+      <div className="glass rounded-2xl p-3 sm:p-4" data-capture-block>
+        <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
+          <span className="flex items-center gap-1.5 font-extrabold text-app">{mode === "chart" ? <GitBranch size={14} className="text-[#00A8FF]" /> : <Layers size={14} className="text-[#00A8FF]" />}{mode === "chart" ? "Landscape organogram" : "Level swim-lanes"} · {department || division || "Whole organization"} <InfoTip id="org-chart" /></span>
+          <span className="rounded-full bg-black/5 px-2 py-0.5 text-[10px] font-bold text-muted-app">{inScope.length.toLocaleString()} employees</span>
+          <span className="rounded-full bg-[#0D47A1]/10 px-2 py-0.5 text-[10px] font-bold text-[#0D47A1]">Rows = levels {order[0] ?? ""} → {order[order.length - 1] ?? ""}</span>
+          {displayRoots.length > 1 && <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold text-amber-600">{displayRoots.length} entry points</span>}
+          {statusCounts.vacant > 0 && <span className="rounded-full border border-dashed border-slate-400 bg-white/50 px-2 py-0.5 text-[10px] font-bold text-slate-600">{statusCounts.vacant} vacant</span>}
+          {statusCounts.temporary > 0 && <span className="rounded-full bg-yellow-200 px-2 py-0.5 text-[10px] font-bold text-slate-800">{statusCounts.temporary} temporary / acting</span>}
+          {dim && <span className="rounded-full bg-[#00A8FF]/15 px-2 py-0.5 text-[10px] font-bold text-[#0D47A1]">{highlight!.length} match global slicers · others dimmed</span>}
+          {matches.size > 0 && <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-bold text-emerald-600">{matches.size} search hit{matches.size > 1 ? "s" : ""}</span>}
+          <span className="ml-auto flex items-center gap-1 text-[10px] text-muted-app"><Hand size={11} /> drag to pan · click a card for the profile · chevron expands</span>
+          <div className="w-full border-t border-app pt-1.5 text-[10px] text-muted-app"><span className="mr-3 inline-flex items-center gap-1"><span className="h-3 w-5 rounded-sm border border-slate-400 bg-white" /> Occupied</span><span className="mr-3 inline-flex items-center gap-1"><span className="h-3 w-5 rounded-sm border border-dashed border-slate-500 bg-white/50" /> Vacant / inferred position</span><span className="mr-3 inline-flex items-center gap-1"><span className="h-3 w-5 rounded-sm border border-amber-400 bg-yellow-200" /> Temporary / acting / contract</span><span className="inline-flex items-center gap-1"><span className="w-5 border-t-2 border-dashed border-amber-500" /> Inferred reporting line</span></div>
+        </div>
+        {mode === "chart" ? (
+          <OrgCanvas layout={layout} levels={levels} ctx={ctx} zoom={zoom} maxHeight={720} containerRef={containerRef} interactive scopeLabel={scopeLabel} />
+        ) : (
+          <LevelLanes nodes={inScope} levels={scopeLevels} ctx={ctx} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- print / report variant ---------------- */
+export function OrgChartPrint({ data, division, department, expandPos, maxWidth = 1352 }: { data: Employee[]; division?: string; department?: string; expandPos: number; maxWidth?: number }) {
+  const pref = useHR((s) => s.seniorityDirection);
+  const headOverrides = useHR((s) => s.divisionHeadOverrides);
+  const reportingOverrides = useHR((s) => s.reportingLineOverrides);
+  const { build, levels, levelOf } = useOrgModel(data, pref, headOverrides, reportingOverrides);
+  const roots = useMemo(() => scopeRoots(build, division, department), [build, division, department]);
+  const displayRoots = roots;
+  const inScope = useMemo(() => build.nodes.filter((n) => (!division || n.emp.division === division) && (!department || n.emp.department === department)), [build, division, department]);
+  const limitSen = expandPos < 0 ? -Infinity : levels[Math.min(expandPos, Math.max(0, levels.length - 1))]?.sen ?? -Infinity;
+  const open = useMemo(() => { const s = new Set(build.nodes.filter((n) => n.sen >= limitSen).map((n) => n.id)); roots.forEach((r) => s.add(r.id)); return s; }, [build, limitSen, roots]);
+  const scopeLabel = department || division || "ATOMA";
+  const layout = useMemo(() => layoutOrg(displayRoots, {
+    layerOf: layerOfFactory(levelOf, levels.length), isOpen: (id) => open.has(id), card: COMPACT,
+  }), [displayRoots, levelOf, levels.length, open]);
+  const zoom = Math.max(0.2, Math.min(1, maxWidth / Math.max(1, layout.width)));
+  const containerRef = useRef<HTMLDivElement>(null);
+  const ctx: Ctx = { levelOf, matches: new Set(), dim: null, compact: true, interactive: false, isOpen: (id) => open.has(id), toggle: () => {}, select: () => {} };
+  const order = levels.filter((l) => l.band !== "Unspecified").map((l) => displayLevel(l.label));
+  return (
+    <div>
+      <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px] text-muted-app">
+        <span className="font-bold text-app">{department || division || "Whole organization"}</span> · {inScope.length.toLocaleString()} employees · landscape · rows = levels {order.join(" › ")} · expanded to {expandPos < 0 ? "everyone" : displayLevel(levels[expandPos]?.label)} · dashed = inferred line
+      </div>
+      <OrgCanvas layout={layout} levels={levels} ctx={ctx} zoom={zoom} containerRef={containerRef} interactive={false} scopeLabel={scopeLabel} />
+      <div className="mt-2"><LevelLegend levels={levels} /></div>
+    </div>
+  );
+}

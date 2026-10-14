@@ -1,0 +1,294 @@
+import type { Employee } from "./types";
+import { resolveDirection, seniorityValue, type Direction, type SeniorityDirection } from "./levels";
+
+/**
+ * Reporting-line engine.
+ *  1. Supervisor e-mail → employee e-mail
+ *  2. Supervisor field → Employee / HRIS number
+ *  3. Supervisor name → a genuinely more-senior namesake (same department, then division)
+ *  4. Level fallback → department head → division head → organisation top
+ *
+ * Then one division head is resolved per division and connected to the CEO. Manual overrides are authoritative;
+ * automatic selection scores C-suite/Head/Director titles, level, CEO reporting, division-title match and span.
+ */
+export type LinkSource = "override" | "email" | "employee-no" | "name" | "fuzzy-name" | "inferred-department" | "inferred-division" | "inferred-top" | "division-head" | "root";
+export interface OrgNode { id: string; emp: Employee; parentId: string | null; children: OrgNode[]; depth: number; total: number; sen: number; link: LinkSource }
+export interface OrgQuality {
+  total: number; linked: number; byEmail: number; byNo: number; byName: number; inferred: number; roots: number; cycles: number;
+  unmatched: { name: string; count: number }[];
+}
+export interface DivisionHeadCandidate { key: string; employee: Employee; score: number; reasons: string[]; selected: boolean; manual: boolean }
+export interface OrgBuild {
+  nodes: OrgNode[]; byId: Map<string, OrgNode>; roots: OrgNode[]; top: OrgNode | null; quality: OrgQuality; direction: Direction;
+  divisionHeads: Map<string, OrgNode>; headCandidates: Map<string, DivisionHeadCandidate[]>;
+}
+
+const normName = (s: string) => (s || "").toLowerCase().replace(/[^\p{L}\p{N} ]/gu, " ").replace(/\s+/g, " ").trim();
+const normEmail = (s: string) => (s || "").toLowerCase().trim();
+const EXEC_TOP = /\b(ceo|chief executive|president|managing director|country manager)\b/i;
+const C_SUITE = /\b(chief|cio|cmo|cco|cto|cfo|coo|chro|cso|cpo|cro|vice president|vp)\b/i;
+const HEAD = /\b(head|director|general manager|gm|managing|vice president|vp)\b/i;
+const SR_MANAGER = /\b(sr\.?|senior)\s+manager\b/i;
+const MANAGER = /\bmanager\b/i;
+const STOP = new Set(["and", "the", "of", "for", "division", "department", "directorate", "unit", "services", "service"]);
+
+export function employeeOrgKey(e: Employee): string {
+  return (e.employeeNo || e.email || e.hrisNo || e.fullName).trim().toLowerCase();
+}
+const divTokens = (s: string) => normName(s).split(" ").filter((x) => x.length > 2 && !STOP.has(x));
+function editDistance(a: string, b: string): number {
+  const prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let diag = prev[0]; prev[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const up = prev[j], left = prev[j - 1];
+      prev[j] = a[i - 1] === b[j - 1] ? diag : 1 + Math.min(diag, up, left);
+      diag = up;
+    }
+  }
+  return prev[b.length];
+}
+function nameSimilarity(aRaw: string, bRaw: string): number {
+  const a = normName(aRaw), b = normName(bRaw); if (!a || !b) return 0;
+  if (a === b) return 1;
+  const lev = 1 - editDistance(a, b) / Math.max(a.length, b.length);
+  const A = new Set(a.split(" ")), B = new Set(b.split(" "));
+  const shared = [...A].filter((x) => B.has(x)).length;
+  const token = shared / Math.max(A.size, B.size);
+  return Math.max(lev, token * 0.75 + lev * 0.25);
+}
+function isMohibNasrullah(employee: Employee, manager: Employee): boolean {
+  return /mohibullah.*afzalzada/i.test(normName(employee.fullName)) && /nasrullah.*khan.*mamo+zai/i.test(normName(manager.fullName));
+}
+
+function candidateScores(nodes: OrgNode[], top: OrgNode | null, division: string, overrideKey?: string): DivisionHeadCandidate[] {
+  const inDiv = nodes.filter((n) => n.emp.division === division);
+  const refCounts = new Map<string, { total: number; departments: Set<string> }>();
+  for (const e of inDiv.map((n) => n.emp)) {
+    const refs = [normEmail(e.supervisorEmail), normName(e.supervisor)].filter(Boolean);
+    for (const ref of refs) {
+      const x = refCounts.get(ref) ?? { total: 0, departments: new Set<string>() };
+      x.total++; x.departments.add(e.department); refCounts.set(ref, x);
+    }
+  }
+  const tokens = divTokens(division);
+  const maxSen = Math.max(1, ...inDiv.map((n) => Math.abs(n.sen)).filter(Number.isFinite));
+  const scored = inDiv.map((n): DivisionHeadCandidate => {
+    const t = n.emp.title || "";
+    const key = employeeOrgKey(n.emp);
+    const refs = [refCounts.get(normEmail(n.emp.email)), refCounts.get(normName(n.emp.fullName))].filter(Boolean) as { total: number; departments: Set<string> }[];
+    const reports = refs.reduce((a, r) => a + r.total, 0);
+    const depts = new Set(refs.flatMap((r) => [...r.departments])).size;
+    const reasons: string[] = [];
+    let score = (n.sen / maxSen) * 300;
+    if (C_SUITE.test(t)) { score += 1600; reasons.push("C-suite / Chief title"); }
+    else if (HEAD.test(t)) { score += 850; reasons.push("Head / Director title"); }
+    else if (SR_MANAGER.test(t)) { score += 180; reasons.push("Senior Manager title"); }
+    else if (MANAGER.test(t)) { score += 80; reasons.push("Manager title"); }
+    // ATOMA title/name anchors supplied by HR. They are strong hints, still superseded by a manual override.
+    const dn = normName(division), en = normName(n.emp.fullName);
+    if (dn.includes("sales") && dn.includes("distribution") && nameSimilarity(n.emp.fullName, "Baryalay Wassim") >= 0.82) { score += 5000; reasons.push("ATOMA Sales & Distribution head reference"); }
+    if ((dn.includes("information system") || dn === "it" || dn.includes("technology")) && /\b(cio|chief information|chief technology)\b/i.test(t)) { score += 4500; reasons.push("CIO / technology chief matches division"); }
+    if (dn.includes("marketing") && /\b(cmo|chief marketing)\b/i.test(t)) { score += 4500; reasons.push("CMO matches Marketing division"); }
+    if (n.parentId === top?.id) { score += 650; reasons.push("reports to CEO / top position"); }
+    const titleNorm = normName(t);
+    const hits = tokens.filter((x) => titleNorm.includes(x)).length;
+    if (hits) { score += hits * 180; reasons.push(`title matches ${hits} division keyword${hits > 1 ? "s" : ""}`); }
+    if (depts >= 2) { score += Math.min(400, depts * 70); reasons.push(`span across ${depts} departments`); }
+    if (reports) { score += Math.min(240, reports * 8); reasons.push(`${reports} named report${reports > 1 ? "s" : ""}`); }
+    if (/assistant|deputy/i.test(t)) score -= 120;
+    if (SR_MANAGER.test(t) && inDiv.some((x) => C_SUITE.test(x.emp.title || "") || HEAD.test(x.emp.title || ""))) score -= 250;
+    const manual = !!overrideKey && key === overrideKey;
+    if (manual) { score += 1_000_000; reasons.unshift("manual administrator override"); }
+    return { key, employee: n.emp, score, reasons, selected: false, manual };
+  }).sort((a, b) => b.score - a.score || a.employee.fullName.localeCompare(b.employee.fullName));
+  if (scored[0]) scored[0].selected = true;
+  return scored;
+}
+
+export function rankDivisionHeadCandidates(data: Employee[], division: string, pref: SeniorityDirection = "high-top", overrideKey?: string): DivisionHeadCandidate[] {
+  const { direction } = resolveDirection(pref, data);
+  const nodes: OrgNode[] = data.map((emp, i) => ({ id: `r${i}`, emp, parentId: null, children: [], depth: 0, total: 1, sen: seniorityValue(emp, direction), link: "root" }));
+  let top: OrgNode | null = null;
+  for (const n of nodes) if (!top || n.sen > top.sen || (n.sen === top.sen && EXEC_TOP.test(n.emp.title) && !EXEC_TOP.test(top.emp.title))) top = n;
+  // Direct-to-top evidence from the raw fields.
+  if (top) for (const n of nodes) if (normEmail(n.emp.supervisorEmail) === normEmail(top.emp.email) || normName(n.emp.supervisor) === normName(top.emp.fullName)) n.parentId = top.id;
+  return candidateScores(nodes, top, division, overrideKey);
+}
+
+export function buildOrgTree(data: Employee[], pref: SeniorityDirection = "high-top", headOverrides: Record<string, string> = {}, reportingOverrides: Record<string, string> = {}): OrgBuild {
+  const { direction } = resolveDirection(pref, data);
+  const nodes: OrgNode[] = data.map((emp, i) => ({ id: `n${i}`, emp, parentId: null, children: [], depth: 0, total: 1, sen: seniorityValue(emp, direction), link: "root" }));
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const byEmail = new Map<string, OrgNode>();
+  const byNo = new Map<string, OrgNode>();
+  const byName = new Map<string, OrgNode[]>();
+  const byOrgKey = new Map<string, OrgNode>();
+  for (const n of nodes) {
+    byOrgKey.set(employeeOrgKey(n.emp), n);
+    const em = normEmail(n.emp.email); if (em && !byEmail.has(em)) byEmail.set(em, n);
+    const no = (n.emp.employeeNo || "").trim().toLowerCase(); if (no && !byNo.has(no)) byNo.set(no, n);
+    const h = (n.emp.hrisNo || "").trim().toLowerCase(); if (h && !byNo.has(h)) byNo.set(h, n);
+    const nm = normName(n.emp.fullName); if (nm) { if (!byName.has(nm)) byName.set(nm, []); byName.get(nm)!.push(n); }
+  }
+
+  const better = (a: OrgNode, b: OrgNode) => (a.sen !== b.sen ? a.sen > b.sen : (C_SUITE.test(a.emp.title) ? 1 : 0) !== (C_SUITE.test(b.emp.title) ? 1 : 0) ? C_SUITE.test(a.emp.title) : (a.emp.tenure || 0) > (b.emp.tenure || 0));
+  const deptHead = new Map<string, OrgNode>();
+  let top: OrgNode | null = null;
+  for (const n of nodes) {
+    const dk = `${n.emp.division}||${n.emp.department}`;
+    const cd = deptHead.get(dk); if (!cd || better(n, cd)) deptHead.set(dk, n);
+    if (!top || n.sen > top.sen) top = n;
+    else if (n.sen === top.sen) {
+      const ne = EXEC_TOP.test(n.emp.title || ""), te = EXEC_TOP.test(top.emp.title || "");
+      if ((ne && !te) || (ne === te && better(n, top))) top = n;
+    }
+  }
+
+  const unmatched = new Map<string, number>();
+  const q: OrgQuality = { total: nodes.length, linked: 0, byEmail: 0, byNo: 0, byName: 0, inferred: 0, roots: 0, cycles: 0, unmatched: [] };
+  for (const n of nodes) {
+    let p: OrgNode | undefined;
+    let link: LinkSource = "root";
+    const override = reportingOverrides[employeeOrgKey(n.emp)];
+    if (override && byOrgKey.has(override) && byOrgKey.get(override) !== n) { p = byOrgKey.get(override); link = "override"; }
+    // Known ATOMA line: use the named manager even when spelling/level fields in the export are inconsistent.
+    if (!p && /mohibullah.*afzalzada/i.test(normName(n.emp.fullName))) {
+      const anchored = nodes.find((c) => c !== n && isMohibNasrullah(n.emp, c.emp));
+      if (anchored) { p = anchored; link = "fuzzy-name"; }
+    }
+    const se = normEmail(n.emp.supervisorEmail);
+    if (!p && se && byEmail.has(se)) { p = byEmail.get(se); link = "email"; }
+    const sv = (n.emp.supervisor || "").trim();
+    if (!p && sv) { const k = sv.toLowerCase(); if (byNo.has(k)) { p = byNo.get(k); link = "employee-no"; } }
+    if (!p && sv) {
+      const exact = (byName.get(normName(sv)) ?? []).filter((c) => c !== n);
+      if (exact.length === 1) p = exact[0]; // direct HRIS name wins regardless of level
+      else if (exact.length > 1) {
+        p = exact.sort((a, b) =>
+          Number(b.emp.division === n.emp.division) - Number(a.emp.division === n.emp.division)
+          || Number(b.emp.department === n.emp.department) - Number(a.emp.department === n.emp.department)
+          || b.sen - a.sen
+        )[0];
+      }
+      if (p) link = "name";
+    }
+    if (!p && sv) {
+      const fuzzy = nodes.filter((c) => c !== n && (!n.emp.division || c.emp.division === n.emp.division))
+        .map((c) => ({ c, sim: nameSimilarity(sv, c.emp.fullName) + (isMohibNasrullah(n.emp, c.emp) ? 2 : 0) }))
+        .filter((x) => x.sim >= 0.82)
+        .sort((a, b) => b.sim - a.sim || Number(b.c.emp.department === n.emp.department) - Number(a.c.emp.department === n.emp.department) || b.c.sen - a.c.sen);
+      if (fuzzy[0] && (!fuzzy[1] || fuzzy[0].sim - fuzzy[1].sim >= 0.025 || fuzzy[0].sim > 1)) { p = fuzzy[0].c; link = "fuzzy-name"; }
+    }
+    if (p && p !== n) {
+      n.parentId = p.id; n.link = link; q.linked++;
+      if (link === "email") q.byEmail++; else if (link === "employee-no" || link === "override") q.byNo++; else q.byName++;
+      continue;
+    }
+    if (sv || se) unmatched.set(sv || se, (unmatched.get(sv || se) ?? 0) + 1);
+    const dh = deptHead.get(`${n.emp.division}||${n.emp.department}`);
+    const ok = (c?: OrgNode | null) => !!c && c !== n && (c.sen > n.sen || (c.sen === n.sen && c === top));
+    if (ok(dh)) { n.parentId = dh!.id; n.link = "inferred-department"; q.inferred++; }
+    else if (ok(top)) { n.parentId = top!.id; n.link = "inferred-top"; q.inferred++; }
+    else { n.parentId = null; n.link = "root"; }
+  }
+
+  // Resolve exactly one head per division and normalise all cross-boundary roots under it.
+  const divisionHeads = new Map<string, OrgNode>();
+  const headCandidates = new Map<string, DivisionHeadCandidate[]>();
+  const divisions = Array.from(new Set(nodes.map((n) => n.emp.division).filter(Boolean))).sort();
+  for (const division of divisions) {
+    const ranked = candidateScores(nodes, top, division, headOverrides[division]);
+    headCandidates.set(division, ranked.slice(0, 15));
+    const selected = ranked[0];
+    if (!selected) continue;
+    const head = nodes.find((n) => employeeOrgKey(n.emp) === selected.key && n.emp.division === division);
+    if (!head) continue;
+    divisionHeads.set(division, head);
+    if (head !== top && top) { head.parentId = top.id; head.link = selected.manual ? "division-head" : head.link === "email" || head.link === "name" ? head.link : "division-head"; }
+    for (const n of nodes) {
+      if (n === head || n === top || n.emp.division !== division) continue;
+      const p = n.parentId ? byId.get(n.parentId) : null;
+      if (!p || p.emp.division !== division || p === top) {
+        n.parentId = head.id;
+        n.link = "inferred-division";
+      }
+    }
+  }
+
+  // Break cycles defensively at the most senior member.
+  for (const n of nodes) {
+    const seen = new Set<string>();
+    let cur: OrgNode | undefined = n;
+    while (cur?.parentId) {
+      if (seen.has(cur.id)) {
+        const cyc: OrgNode[] = []; let c2: OrgNode | undefined = cur;
+        do { cyc.push(c2); c2 = byId.get(c2.parentId!); } while (c2 && c2 !== cur && cyc.length <= nodes.length);
+        const m = cyc.reduce((a, b) => (better(b, a) ? b : a));
+        m.parentId = top && !cyc.includes(top) ? top.id : null; m.link = m.parentId ? "inferred-top" : "root"; q.cycles++; break;
+      }
+      seen.add(cur.id); cur = byId.get(cur.parentId);
+      if (seen.size > 100) { // malformed chains never crash the page
+        n.parentId = top && n !== top ? top.id : null; n.link = n.parentId ? "inferred-top" : "root"; q.cycles++; break;
+      }
+    }
+  }
+
+  for (const n of nodes) { n.children = []; n.depth = 0; n.total = 1; }
+  for (const n of nodes) if (n.parentId && byId.has(n.parentId)) byId.get(n.parentId)!.children.push(n); else n.parentId = null;
+  const roots = nodes.filter((n) => !n.parentId);
+  const sortKids = (arr: OrgNode[]) => arr.sort((a, b) => b.sen - a.sen || b.total - a.total || a.emp.fullName.localeCompare(b.emp.fullName));
+  const stack: [OrgNode, boolean][] = roots.map((r) => [r, false]);
+  const processed = new Set<string>();
+  while (stack.length) {
+    const [n, done] = stack.pop()!;
+    if (!done) {
+      if (processed.has(n.id)) continue;
+      processed.add(n.id); stack.push([n, true]);
+      for (const c of n.children) { c.depth = n.depth + 1; stack.push([c, false]); }
+    } else { n.total = 1 + n.children.reduce((a, c) => a + c.total, 0); sortKids(n.children); }
+  }
+  sortKids(roots);
+  q.roots = roots.length;
+  q.unmatched = Array.from(unmatched.entries()).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
+  return { nodes, byId, roots, top, quality: q, direction, divisionHeads, headCandidates };
+}
+
+function cloneScoped(node: OrgNode, include: (n: OrgNode) => boolean): OrgNode | null {
+  if (!include(node)) return null;
+  const children = node.children.map((c) => cloneScoped(c, include)).filter((c): c is OrgNode => !!c);
+  return { ...node, children, total: 1 + children.reduce((a, c) => a + c.total, 0) };
+}
+
+export function scopeRoots(build: OrgBuild, division?: string, department?: string): OrgNode[] {
+  if (!division && !department) return build.roots;
+  if (division && department) {
+    const inDept = (n: OrgNode) => n.emp.division === division && n.emp.department === department;
+    const departmentRoots = build.nodes
+      .filter((n) => inDept(n) && (!n.parentId || !inDept(build.byId.get(n.parentId)!)))
+      .map((n) => cloneScoped(n, inDept)).filter((n): n is OrgNode => !!n)
+      .sort((a, b) => b.sen - a.sen || b.total - a.total);
+    const head = build.divisionHeads.get(division);
+    if (!head) return departmentRoots;
+    // Always retain the real division head/director at the top of a departmental chart.
+    const rootsWithoutDuplicateHead = departmentRoots.filter((n) => n.id !== head.id);
+    if (departmentRoots.some((n) => n.id === head.id)) {
+      const scopedHead = cloneScoped(head, (n) => n.id === head.id || inDept(n));
+      return scopedHead ? [scopedHead] : departmentRoots;
+    }
+    return [{ ...head, parentId: null, children: rootsWithoutDuplicateHead, depth: 0, total: 1 + rootsWithoutDuplicateHead.reduce((a, c) => a + c.total, 0), link: "division-head" }];
+  }
+  const inScope = (n: OrgNode) => (!division || n.emp.division === division) && (!department || n.emp.department === department);
+  return build.nodes
+    .filter((n) => inScope(n) && (!n.parentId || !inScope(build.byId.get(n.parentId)!)))
+    .map((n) => cloneScoped(n, inScope)).filter((n): n is OrgNode => !!n)
+    .sort((a, b) => b.sen - a.sen || b.total - a.total);
+}
+export function ancestorIds(build: OrgBuild, id: string): string[] {
+  const out: string[] = []; const seen = new Set<string>(); let cur = build.byId.get(id);
+  while (cur?.parentId && !seen.has(cur.parentId)) { seen.add(cur.parentId); out.push(cur.parentId); cur = build.byId.get(cur.parentId); }
+  return out;
+}
+export function averageDepth(build: OrgBuild): number {
+  return build.nodes.length ? build.nodes.reduce((a, n) => a + n.depth, 0) / build.nodes.length + 1 : 0;
+}
