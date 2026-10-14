@@ -105,7 +105,9 @@ export function buildPrintLayout(roots: OrgNode[], paper: Paper): OrgLayout {
 export function sliceRows(layout: OrgLayout, fromRow: number, toRow: number): OrgLayout {
   const layerIndexes = layout.layers.filter((l) => l.index >= fromRow && l.index <= toRow).map((l) => l.index);
   const keep = new Set(layerIndexes);
-  const offsetY = layout.layers[fromRow]?.offset ?? 0;
+  const keptYs = layout.nodes.filter((n) => keep.has(n.layer)).map((n) => n.y);
+  const layerOffset = layout.layers[fromRow]?.offset ?? 0;
+  const offsetY = Math.min(layerOffset, ...keptYs.length ? keptYs : [layerOffset]);
   const nodes = layout.nodes.filter((n) => keep.has(n.layer)).map((n) => ({ ...n, y: n.y - offsetY }));
   const ids = new Set(nodes.map((n) => n.id));
   const edges = layout.edges.filter((e) => ids.has(e.from) && ids.has(e.to)).map((e) => ({ ...e, points: e.points.map(([x, y]) => [x, y - offsetY] as [number, number]), d: e.points.map(([x, y], i) => `${i ? "L" : "M"} ${x} ${y - offsetY}`).join(" ") }));
@@ -161,6 +163,21 @@ export function fitPrintPack(roots: OrgNode[], preferred: Paper = "A3"): PrintPa
   return { paper, sheets: [], scale: 0 };
 }
 
+/** Sheets a finished layout (manual positions included), growing A4 → A3 → A2 until type stays readable. */
+export function sheetLayout(layout: OrgLayout, preferred: Paper = "A3"): { paper: Paper; sheets: PrintSheet[] } {
+  const order: Paper[] = ["A4", "A3", "A2"];
+  const start = order.includes(preferred) ? order.indexOf(preferred) : 1;
+  let paper = order[start];
+  let sheets = buildPrintSheets(layout, paper);
+  for (let i = start; i < order.length; i++) {
+    paper = order[i];
+    sheets = buildPrintSheets(layout, paper);
+    const worst = Math.min(...sheets.map((sheet) => packScale(sheet.layout, paper)));
+    if (worst >= 0.7 || i === order.length - 1) break;
+  }
+  return { paper, sheets };
+}
+
 export function buildDepartmentSheets(employees: Employee[], division: string, paper: Paper): PrintSheet[] {
   const build = buildOrgTree(employees);
   const departments = [...new Set(employees.filter((e) => e.division === division).map((e) => e.department))].sort();
@@ -181,6 +198,46 @@ export function buildDepartmentSheets(employees: Employee[], division: string, p
 
 const esc = (s: unknown) => String(s ?? "").replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" })[c] ?? c);
 const levelColor = (level?: string) => LEVEL_COLORS[(level ?? "L2") as keyof typeof LEVEL_COLORS] ?? "#64748B";
+
+/**
+ * Width-aware greedy wrap shared by every renderer (SVG sheet, jsPDF, PPTX, Visio).
+ * Arial-ish average glyph width (bold ≈ 0.55em, regular ≈ 0.52em) keeps titles and
+ * names inside their card at any size — a fixed character slice overflows the box
+ * as soon as the title is long, which is how names/titles used to collide.
+ */
+export function wrapCardText(text: string, maxWidth: number, fontSize: number, bold: boolean, maxLines = 1): string[] {
+  const avg = fontSize * (bold ? 0.55 : 0.52);
+  const maxChars = Math.max(4, Math.floor(maxWidth / avg));
+  const words = String(text ?? "").replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
+  const lines: string[] = [];
+  let current = "";
+  for (const word of words) {
+    if (!current) {
+      current = word.length <= maxChars ? word : `${word.slice(0, Math.max(3, maxChars - 1))}…`;
+      continue;
+    }
+    const candidate = `${current} ${word}`;
+    if (candidate.length <= maxChars) current = candidate;
+    else {
+      lines.push(current);
+      current = word.length <= maxChars ? word : `${word.slice(0, Math.max(3, maxChars - 1))}…`;
+    }
+  }
+  if (current) lines.push(current);
+  if (lines.length > maxLines) {
+    const kept = lines.slice(0, maxLines);
+    const last = kept[maxLines - 1];
+    if (!last.endsWith("…")) kept[maxLines - 1] = `${last.slice(0, Math.max(3, last.length - 1))}…`;
+    return kept;
+  }
+  return lines;
+}
+
+/** Title lines + first baseline for a card of width `w` (design px, 11.5px bold). */
+export function cardTextLayout(title: string, w: number): { lines: string[]; startY: number } {
+  const lines = wrapCardText(title, w - 18, 11.5, true, 2);
+  return { lines, startY: lines.length > 1 ? 17 : 23 };
+}
 const stamp = () => {
   const d = new Date();
   const p = (n: number) => String(n).padStart(2, "0");
@@ -194,13 +251,14 @@ function cardSvg(n: LNode): string {
   const fill = st.temporary ? "#FEF08A" : "#FFFFFF";
   const stroke = st.vacant ? "#64748B" : n.inferred ? "#F59E0B" : "#94A3B8";
   const title = String(node.emp.title || "Position not specified");
-  const titleLines = title.length > 26 ? [title.slice(0, 26), title.slice(26, 52)] : [title];
-  const startY = n.y + (titleLines.length > 1 ? 17 : 23);
+  const { lines: titleLines, startY } = cardTextLayout(title, n.w);
+  const nameLine = wrapCardText(st.vacant ? "VACANT" : node.emp.fullName, n.w - 16, 10.5, false, 1)[0] ?? "";
+  const y0 = n.y;
   return `<g>
     <rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="4" fill="${fill}" stroke="${stroke}" stroke-width="${n.inferred ? 1.8 : 1.1}" ${st.vacant || n.inferred ? 'stroke-dasharray="5 4"' : ""}/>
     <rect x="${n.x}" y="${n.y + 5}" width="3.5" height="${n.h - 10}" fill="${color}"/>
-    ${titleLines.map((line, i) => `<text x="${n.x + n.w / 2}" y="${startY + i * 14}" text-anchor="middle" font-size="11.5" font-weight="700" fill="#0F172A">${esc(line)}</text>`).join("")}
-    <text x="${n.x + n.w / 2}" y="${startY + titleLines.length * 14 + 1}" text-anchor="middle" font-size="10.5" fill="#334155">${esc(st.vacant ? "VACANT" : node.emp.fullName)}</text>
+    ${titleLines.map((line, i) => `<text x="${n.x + n.w / 2}" y="${y0 + startY + i * 14}" text-anchor="middle" font-size="11.5" font-weight="700" fill="#0F172A">${esc(line)}</text>`).join("")}
+    <text x="${n.x + n.w / 2}" y="${y0 + startY + titleLines.length * 14 + 1}" text-anchor="middle" font-size="10.5" fill="#334155">${esc(nameLine)}</text>
     ${st.temporary ? `<text x="${n.x + n.w - 6}" y="${n.y + 13}" text-anchor="end" font-size="7.5" font-weight="700" fill="#92400E">TEMP</text>` : ""}
   </g>`;
 }
@@ -217,9 +275,11 @@ function groupSvg(n: LNode): string {
       const x = n.x + 6 + col * colW;
       const y = n.y + 32 + row * 26;
       const st = employeeStatus(m.emp);
+      const memberTitle = wrapCardText(st.vacant ? "VACANT" : m.emp.title, colW - 9, 7.5, true, 1)[0] ?? "";
+      const memberName = wrapCardText(m.emp.fullName, colW - 9, 7, false, 1)[0] ?? "";
       return `<rect x="${x}" y="${y}" width="${colW - 4}" height="23" rx="3" fill="${st.temporary ? "#FEF08A" : "#F8FAFC"}" stroke="${st.vacant ? "#64748B" : "#E2E8F0"}" ${st.vacant ? 'stroke-dasharray="3 2"' : ""}/>
-      <text x="${x + 5}" y="${y + 9}" font-size="7.5" font-weight="700" fill="#0F172A">${esc(st.vacant ? "VACANT" : m.emp.title).slice(0, 24)}</text>
-      <text x="${x + 5}" y="${y + 18}" font-size="7" fill="#64748B">${esc(m.emp.fullName).slice(0, 26)}</text>`;
+      <text x="${x + 5}" y="${y + 9}" font-size="7.5" font-weight="700" fill="#0F172A">${esc(memberTitle)}</text>
+      <text x="${x + 5}" y="${y + 18}" font-size="7" fill="#64748B">${esc(memberName)}</text>`;
     })
     .join("");
   return `<g><rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="5" fill="#fff" stroke="${color}" stroke-width="1.1"/>
@@ -381,7 +441,8 @@ export async function downloadPrintPack(sheets: PrintSheet[], opts: OrgExportOpt
         doc.setTextColor(15, 23, 42);
         doc.setFont("helvetica", "bold");
         doc.setFontSize(Math.max(3.5, 8 * scale));
-        doc.text(`${members[0]?.level ?? ""} roster · ${members.length} positions`, x + S(8), y + S(17));
+        const head = wrapCardText(`${members[0]?.level ?? ""} roster · ${members.length} positions`, n.w - 16, 9, true, 1)[0] ?? "";
+        doc.text(head, x + S(8), y + S(17));
         const grid = groupCardGrid(members.length);
         const colW = (n.w - 12) / grid.cols;
         members.forEach((m, i) => {
@@ -394,11 +455,11 @@ export async function downloadPrintPack(sheets: PrintSheet[], opts: OrgExportOpt
           doc.setTextColor(15, 23, 42);
           doc.setFont("helvetica", "bold");
           doc.setFontSize(Math.max(3, 7.4 * scale));
-          doc.text(String(st.vacant ? "VACANT" : m.emp.title).slice(0, 24), mx + S(5), my + S(9));
+          doc.text(wrapCardText(String(st.vacant ? "VACANT" : m.emp.title), colW - 9, 7.4, true, 1)[0] ?? "", mx + S(5), my + S(9));
           doc.setFont("helvetica", "normal");
           doc.setTextColor(100, 116, 139);
           doc.setFontSize(Math.max(2.8, 7 * scale));
-          doc.text(String(m.emp.fullName).slice(0, 26), mx + S(5), my + S(18));
+          doc.text(wrapCardText(String(m.emp.fullName), colW - 9, 7, false, 1)[0] ?? "", mx + S(5), my + S(18));
         });
         continue;
       }
@@ -414,15 +475,19 @@ export async function downloadPrintPack(sheets: PrintSheet[], opts: OrgExportOpt
       fillHex(color);
       doc.rect(x + S(1), y + S(5), S(3.5), h - S(10), "F");
       const title = String(node.emp.title || "Position not specified");
-      const lines = doc.splitTextToSize(title, w - S(14)).slice(0, 2) as string[];
-      doc.setTextColor(15, 23, 42);
+      const { lines, startY } = cardTextLayout(title, n.w);
+      const nameLine = wrapCardText(st.vacant ? "VACANT" : node.emp.fullName, n.w - 16, 10.5, false, 1)[0] ?? "";
+      // Fonts are set BEFORE drawing and lines come from the shared width-aware wrap,
+      // so jsPDF can never re-split a title measured at a stale (smaller) size and
+      // push extra lines down onto the name.
       doc.setFont("helvetica", "bold");
       doc.setFontSize(Math.max(5, 11.5 * scale));
-      doc.text(lines, x + w / 2, y + (lines.length > 1 ? S(17) : S(23)), { align: "center", maxWidth: w - S(12) });
+      doc.setTextColor(15, 23, 42);
+      lines.forEach((line, i) => doc.text(line, x + w / 2, y + S(startY + i * 14), { align: "center" }));
       doc.setFont("helvetica", "normal");
       doc.setFontSize(Math.max(4.6, 10.5 * scale));
       doc.setTextColor(51, 65, 85);
-      doc.text(st.vacant ? "VACANT" : String(node.emp.fullName).slice(0, 28), x + w / 2, y + S(23) + lines.length * S(14), { align: "center", maxWidth: w - S(10) });
+      doc.text(nameLine, x + w / 2, y + S(startY + lines.length * 14 + 1), { align: "center" });
       if (st.temporary) {
         doc.setFont("helvetica", "bold");
         doc.setFontSize(Math.max(3.5, 7 * scale));

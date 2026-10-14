@@ -384,12 +384,27 @@ function GroupView({ node, ctx }: { node: LNode; ctx: CardCtx }) {
 /** Re-applies saved manual positions and rebuilds connectors from the new geometry. */
 function applyPositions(layout: OrgLayout, overrides: PositionMap): OrgLayout {
   const nodes = layout.nodes.map((n) => ({ ...n }));
+  const railRight = layout.padding + layout.gutter;
   nodes.forEach((n) => {
     const o = overrides[n.id];
-    if (o) {
-      n.x = o.x;
+    if (!o) return;
+    const layer = layout.layers[n.layer];
+    if (layer) {
+      // Manual moves stay inside the card's own level band. Exports reuse the same
+      // overrides against layouts with different row heights (full hierarchy, compact
+      // export cards), and an absolute y saved under one geometry used to land boxes
+      // ON the amber band separators in every downloaded/printed chart.
+      const bandTop = Math.max(0, layer.offset - layout.gapMain / 2);
+      const bandBottom = bandTop + layer.size + layout.gapMain;
+      const minY = bandTop + 4;
+      const maxY = bandBottom - n.h - 4;
+      n.y = maxY > minY ? Math.min(maxY, Math.max(minY, o.y)) : bandTop + Math.max(0, (layer.size - n.h) / 2);
+    } else {
       n.y = o.y;
     }
+    const minX = railRight + 6;
+    const maxX = Math.max(minX, layout.width - n.w - 16);
+    n.x = Math.min(maxX, Math.max(minX, o.x));
   });
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const rowOf = new Map<string, number>();
@@ -442,8 +457,10 @@ function applyPositions(layout: OrgLayout, overrides: PositionMap): OrgLayout {
 
 interface OrganogramProps {
   layout: OrgLayout;
-  /** All-open layout used when "Full hierarchy" exports are enabled. */
+  /** All-open layout used when "Full hierarchy" exports are enabled (compact export cards). */
   fullLayout: OrgLayout;
+  /** Current-view layout with compact cards — exports stay compact even in rich screen mode. */
+  exportViewLayout?: OrgLayout;
   roots: OrgNode[];
   divisionEmployees?: Employee[];
   division?: string;
@@ -479,6 +496,7 @@ interface OrganogramProps {
 export function Organogram({
   layout,
   fullLayout,
+  exportViewLayout,
   roots,
   divisionEmployees,
   division,
@@ -527,8 +545,8 @@ export function Organogram({
 
   const adjustedLayout = useMemo(() => applyPositions(layout, overrides), [layout, overrides]);
   const exportLayout = useMemo(
-    () => (exportFull ? applyPositions(fullLayout, overrides) : adjustedLayout),
-    [exportFull, fullLayout, overrides, adjustedLayout]
+    () => applyPositions(exportFull ? fullLayout : exportViewLayout ?? layout, overrides),
+    [exportFull, fullLayout, exportViewLayout, layout, overrides]
   );
 
   const openFn = isOpen ?? (() => true);
@@ -571,8 +589,8 @@ export function Organogram({
         downloadOrgSvg(exportLayout, options);
         setExportMsg("Editable SVG downloaded — vector quality at any zoom.");
       } else if (kind === "pdf") {
-        await downloadOrgVectorPdf(exportLayout, options);
-        setExportMsg("Single-page vector PDF downloaded.");
+        const pages = await downloadOrgVectorPdf(exportLayout, options);
+        setExportMsg(pages > 1 ? `Vector PDF downloaded — ${pages} pages, type kept at readable size.` : "Vector PDF downloaded — single page, vector quality at any zoom.");
       } else if (kind === "visio") {
         const stats = await downloadOrgVisio(exportLayout, options);
         setExportMsg(`Editable Visio downloaded — ${stats.shapes} shapes (${stats.format.toUpperCase()}).`);

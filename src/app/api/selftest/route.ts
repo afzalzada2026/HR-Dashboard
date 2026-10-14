@@ -4,7 +4,7 @@ import { applyFilters, EMPTY_FILTERS, FILTER_LABELS } from "@/lib/filters";
 import { matchProvince, validateProvinceCoverage } from "@/lib/geo";
 import { buildOrgLayout, type OrgLayout } from "@/lib/orglayout";
 import { buildOrgTree, scopeRoots } from "@/lib/orgtree";
-import { buildSheetSvg, fitPrintPack } from "@/lib/orgprint";
+import { buildSheetSvg, fitPrintPack, wrapCardText } from "@/lib/orgprint";
 import { buildVisioVdx } from "@/lib/org-export";
 import { canonicalOrgLevel, LEVEL_ORDER } from "@/lib/organogram-levels";
 import { enrichEmployees, normalizeRows } from "@/lib/normalize";
@@ -51,7 +51,7 @@ function sampleWorkforce(): Employee[] {
 }
 
 function segmentCrossings(layout: OrgLayout): number {
-  const boxes = layout.nodes.map((n) => ({ id: n.node?.id ?? n.id, x1: n.x - n.w / 2, x2: n.x + n.w / 2, y1: n.y, y2: n.y + n.h }));
+  const boxes = layout.nodes.map((n) => ({ id: n.node?.id ?? n.id, x1: n.x, x2: n.x + n.w, y1: n.y, y2: n.y + n.h }));
   let bad = 0;
   for (const edge of layout.edges) {
     for (let i = 1; i < edge.points.length; i++) {
@@ -72,7 +72,7 @@ function overlapCount(layout: OrgLayout): number {
     for (let j = i + 1; j < layout.nodes.length; j++) {
       const a = layout.nodes[i];
       const b = layout.nodes[j];
-      if (a.y < b.y + b.h - 1 && b.y < a.y + a.h - 1 && a.x - a.w / 2 < b.x + b.w / 2 - 1 && b.x - b.w / 2 < a.x + a.w / 2 - 1) count++;
+      if (a.y < b.y + b.h - 1 && b.y < a.y + a.h - 1 && a.x < b.x + b.w - 1 && b.x < a.x + a.w - 1) count++;
     }
   }
   return count;
@@ -97,6 +97,7 @@ export async function GET() {
     let worstCrossing = 0;
     let misplaced = 0;
     let uncentred = 0;
+    let outOfBand = 0;
     for (const division of divisions) {
       const scoped = employees.filter((e) => e.division === division);
       const layout = buildOrgLayout(scopeRoots(buildOrgTree(scoped), division));
@@ -104,12 +105,20 @@ export async function GET() {
       worstOverlap = Math.max(worstOverlap, overlapCount(layout));
       worstCrossing = Math.max(worstCrossing, segmentCrossings(layout));
       misplaced += layout.nodes.filter((n) => n.node && n.kind === "node" && n.node.level !== layout.layers[n.layer]?.level).length;
+      outOfBand += layout.nodes.filter((n) => {
+        const layer = layout.layers[n.layer];
+        if (!layer) return true;
+        const top = Math.max(0, layer.offset - layout.gapMain / 2);
+        const bottom = top + layer.size + layout.gapMain;
+        return n.y < top - 0.01 || n.y + n.h > bottom + 0.01;
+      }).length;
       const root = layout.nodes[0];
-      if (Math.abs(root.x - layout.width / 2) > 2) uncentred++;
+      if (Math.abs(root.x + root.w / 2 - layout.width / 2) > 2) uncentred++;
     }
     add("No overlapping boxes", worstOverlap === 0, `${divisions.length} divisions tested; worst overlap count ${worstOverlap}.`);
     add("No connector crosses a card", worstCrossing === 0, `Worst crossing count ${worstCrossing}; routing uses row gaps and the left gutter.`);
     add("No level mismatches", misplaced === 0, `${misplaced} cards outside their L6→L1 band.`);
+    add("Cards inside level bands", outOfBand === 0, `${outOfBand} cards crossing an amber band separator.`);
     add("Head centred / balanced branches", uncentred === 0, `${uncentred} divisions with an off-centre top card.`);
 
     // 3 geography
@@ -124,6 +133,10 @@ export async function GET() {
     const vdx = buildVisioVdx(sheets[0].layout, { title: "Self test", subtitle: "Finance" });
     const scale = pack.scale;
     add("SVG export", svg.includes("Level band") && /<rect x="12"/.test(svg.replace(/\s+/g, " ")) && svg.includes("marker-end"), "Level board left, legend present, arrowheads drawn.");
+    const longTitle = wrapCardText("Supervisor – Shared Services and Customer Experience Operations", CARD_W - 18, 11.5, true, 2);
+    const titleFits = longTitle.length <= 2 && longTitle.every((line) => line.length * 11.5 * 0.55 <= CARD_W - 14) && longTitle[longTitle.length - 1].endsWith("…");
+    const nameFits = (wrapCardText("Avez-vous rencontré notre merveilleux directeur financier adjoint", CARD_W - 16, 10.5, false, 1)[0]?.length ?? 0) * 10.5 * 0.52 <= CARD_W - 12;
+    add("Long text stays inside cards", titleFits && nameFits, `${longTitle.length} wrapped title line(s); long name ellipsised to card width.`);
     add("Visio export", (vdx.match(/<Shape /g) || []).length === (vdx.match(/<\/Shape>/g) || []).length && vdx.includes("VisioDocument"), "Valid Visio XML with balanced shapes.");
     add("Print packing", sheets.length >= 1 && sheets.every((sheet) => sheet.layout.nodes.length > 0), `${sheets.length} sheet(s) auto-fitted to ${pack.paper} at ${scale.toFixed(2)} pt/px.`);
     add("Print scale readable", scale >= 0.7, `Paper ${pack.paper}; title text prints at ${(11.5 * scale).toFixed(1)} pt.`);

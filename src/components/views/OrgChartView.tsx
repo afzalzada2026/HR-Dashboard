@@ -337,9 +337,15 @@ function OrgInner() {
     [direction]
   );
   const layout = useMemo(() => buildOrgLayout(roots, { card, isOpen, ...layerOpts }), [roots, card, isOpen, layerOpts]);
+  // Downloads/print always use compact cards (reference behaviour): boxes stay small
+  // and type keeps its designed size instead of a huge box with near-invisible text.
   const fullLayout = useMemo(
-    () => buildOrgLayout(roots, { card, isOpen: () => true, ...layerOpts }),
-    [roots, card, layerOpts]
+    () => buildOrgLayout(roots, { card: COMPACT_CARD, isOpen: () => true, ...layerOpts }),
+    [roots, layerOpts]
+  );
+  const exportViewLayout = useMemo(
+    () => buildOrgLayout(roots, { card: COMPACT_CARD, isOpen, ...layerOpts }),
+    [roots, isOpen, layerOpts]
   );
 
   /* ── stable org-key per node (text edits must not change the key) ── */
@@ -853,6 +859,7 @@ function OrgInner() {
             <Organogram
               layout={layout}
               fullLayout={fullLayout}
+              exportViewLayout={exportViewLayout}
               roots={roots}
               divisionEmployees={division ? displayData.filter((employee) => employee.division === division) : undefined}
               division={division || undefined}
