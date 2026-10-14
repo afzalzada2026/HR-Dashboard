@@ -1,7 +1,7 @@
 import { ATOMA_MARK_PATHS } from "./brand";
 import { downloadBlob } from "./format";
 import { buildOrgLayout, groupCardGrid, type LNode, type OrgLayout } from "./orglayout";
-import type { OrgLevelCode } from "./organogram-levels";
+import { LEVEL_COLORS } from "./organogram-levels";
 
 export interface OrgExportOpts {
   title: string;
@@ -10,15 +10,8 @@ export interface OrgExportOpts {
   footer?: string;
 }
 
-export const LEVEL_COLORS: Record<OrgLevelCode, string> = {
-  L6: "#062B5B",
-  L5: "#0D47A1",
-  L4: "#1E6FE0",
-  L3H: "#F59E0B",
-  L3: "#00A8FF",
-  L2: "#64748B",
-  L1: "#94A3B8",
-};
+/** Re-exported from the level model so every renderer shares one palette. */
+export { LEVEL_COLORS };
 
 /** Prints one sheet on a landscape page via a hidden frame (same geometry as every export). */
 export function printSheetSvg(sheet: PrintSheet, opts: OrgExportOpts): boolean {

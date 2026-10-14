@@ -1,5 +1,5 @@
 import type { Employee } from "./types";
-import { canonicalOrgLevel, LEVEL_ORDER, type OrgLevelCode } from "./organogram-levels";
+import { canonicalOrgLevel, seniorityValueForLevel, type Direction, type OrgLevelCode } from "./organogram-levels";
 
 /**
  * Reporting-line engine (ported from the approved ATOMA organogram design):
@@ -105,9 +105,14 @@ export function nameSimilarity(aRaw: string, bRaw: string): number {
   return Math.max(lev, (shared / Math.max(A.size, B.size)) * 0.75 + lev * 0.25);
 }
 
-export function seniorityValue(e: Employee): number {
+export function seniorityValue(e: Employee, direction: Direction = "high-top"): number {
   const level = canonicalOrgLevel(e.level) ?? fallbackLevel(e);
-  return 12 - LEVEL_ORDER.indexOf(level);
+  return seniorityValueForLevel(level, direction);
+}
+
+/** Known ATOMA reporting line kept even when spelling/level fields in the export are inconsistent. */
+function isMohibNasrullah(employee: Employee, manager: Employee): boolean {
+  return /mohibullah.*afzalzada/i.test(normName(employee.fullName)) && /nasrullah.*khan.*mamo+zai/i.test(normName(manager.fullName));
 }
 
 function fallbackLevel(e: Employee): OrgLevelCode {
@@ -216,8 +221,23 @@ function candidateScores(nodes: OrgNode[], top: OrgNode | null, division: string
     .map((candidate, index) => ({ ...candidate, selected: index === 0 }));
 }
 
-export function rankDivisionHeadCandidates(data: Employee[], division: string, overrideKey?: string): DivisionHeadCandidate[] {
-  const nodes: OrgNode[] = data.map((emp, i) => ({ id: `r${i}`, emp, parentId: null, children: [], depth: 0, total: 1, sen: seniorityValue(emp), link: "root", level: canonicalOrgLevel(emp.level) ?? fallbackLevel(emp) }));
+export function rankDivisionHeadCandidates(
+  data: Employee[],
+  division: string,
+  overrideKey?: string,
+  direction: Direction = "high-top"
+): DivisionHeadCandidate[] {
+  const nodes: OrgNode[] = data.map((emp, i) => ({
+    id: `r${i}`,
+    emp,
+    parentId: null,
+    children: [],
+    depth: 0,
+    total: 1,
+    sen: seniorityValue(emp, direction),
+    link: "root",
+    level: canonicalOrgLevel(emp.level) ?? fallbackLevel(emp),
+  }));
   let top: OrgNode | null = null;
   for (const n of nodes) if (!top || better(n, top)) top = n;
   return candidateScores(nodes, top, division, overrideKey);
@@ -246,8 +266,12 @@ export function saveOrgOverrides(next: OrgOverrides): void {
   }
 }
 
-export function buildOrgTree(data: Employee[], overrides: OrgOverrides = { heads: {}, reporting: {} }): OrgBuild {
-  const nodes: OrgNode[] = data.map((emp, i) => ({ id: `n${i}`, emp, parentId: null, children: [], depth: 0, total: 1, sen: seniorityValue(emp), link: "root", level: canonicalOrgLevel(emp.level) ?? fallbackLevel(emp) }));
+export function buildOrgTree(
+  data: Employee[],
+  overrides: OrgOverrides = { heads: {}, reporting: {} },
+  direction: Direction = "high-top"
+): OrgBuild {
+  const nodes: OrgNode[] = data.map((emp, i) => ({ id: `n${i}`, emp, parentId: null, children: [], depth: 0, total: 1, sen: seniorityValue(emp, direction), link: "root", level: canonicalOrgLevel(emp.level) ?? fallbackLevel(emp) }));
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const byEmail = new Map<string, OrgNode>();
   const byNo = new Map<string, OrgNode>();
@@ -288,6 +312,13 @@ export function buildOrgTree(data: Employee[], overrides: OrgOverrides = { heads
       parent = overrideNode;
       link = "override";
     }
+    const anchor = !parent && /mohibullah.*afzalzada/i.test(normName(n.emp.fullName))
+      ? nodes.find((c) => c !== n && isMohibNasrullah(n.emp, c.emp))
+      : undefined;
+    if (anchor) {
+      parent = anchor;
+      link = "fuzzy-name";
+    }
     const supervisorEmail = normEmail(n.emp.supervisorEmail);
     if (!parent && supervisorEmail && byEmail.has(supervisorEmail) && byEmail.get(supervisorEmail) !== n) {
       parent = byEmail.get(supervisorEmail);
@@ -317,7 +348,7 @@ export function buildOrgTree(data: Employee[], overrides: OrgOverrides = { heads
     if (!parent && supervisorRef) {
       const fuzzy = nodes
         .filter((c) => c !== n && (!n.emp.division || c.emp.division === n.emp.division))
-        .map((c) => ({ c, sim: nameSimilarity(supervisorRef, c.emp.fullName) }))
+        .map((c) => ({ c, sim: nameSimilarity(supervisorRef, c.emp.fullName) + (isMohibNasrullah(n.emp, c.emp) ? 2 : 0) }))
         .filter((x) => x.sim >= 0.82)
         .sort((a, b) => b.sim - a.sim || Number(b.c.emp.department === n.emp.department) - Number(a.c.emp.department === n.emp.department) || b.c.sen - a.c.sen);
       if (fuzzy[0] && (!fuzzy[1] || fuzzy[0].sim - fuzzy[1].sim >= 0.025)) {
@@ -374,10 +405,11 @@ export function buildOrgTree(data: Employee[], overrides: OrgOverrides = { heads
     }
   }
 
-  // Mark lateral staff officers beside their manager.
+  // Mark lateral staff officers beside their manager (high-top ladders only — the
+  // heuristic assumes a secretary/assistant sits a couple of levels below their boss).
   for (const n of nodes) {
     const parent = n.parentId ? byId.get(n.parentId) : null;
-    if (parent && STAFF_OFFICER.test(n.emp.title) && n.sen <= parent.sen - 2) n.staff = true;
+    if (direction === "high-top" && parent && STAFF_OFFICER.test(n.emp.title) && n.sen <= parent.sen - 2) n.staff = true;
   }
 
   // Break cycles defensively at the most senior member.
@@ -470,6 +502,19 @@ export function scopeRoots(build: OrgBuild, division?: string, department?: stri
 
 export function averageDepth(build: OrgBuild): number {
   return build.nodes.length ? build.nodes.reduce((a, n) => a + n.depth, 0) / build.nodes.length + 1 : 0;
+}
+
+/** Chain of parent ids from a node up to its root (used to auto-expand search hits). */
+export function ancestorIds(build: OrgBuild, id: string): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  let current = build.byId.get(id);
+  while (current?.parentId && !seen.has(current.parentId)) {
+    seen.add(current.parentId);
+    out.push(current.parentId);
+    current = build.byId.get(current.parentId);
+  }
+  return out;
 }
 
 export function employeeStatus(e: Employee): { vacant: boolean; temporary: boolean } {

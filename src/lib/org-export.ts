@@ -115,4 +115,146 @@ export async function downloadOrgVisio(layout: OrgLayout, opts: OrgExportOpts): 
   }
 }
 
+/**
+ * Editable PowerPoint (.pptx): cards are shapes, names/titles are text boxes and every
+ * connector segment is a line shape — recipients can restyle the whole chart in PowerPoint.
+ */
+export async function downloadOrgPptx(layout: OrgLayout, opts: OrgExportOpts): Promise<void> {
+  const PptxGenJS = (await import("pptxgenjs")).default;
+  const pptx = new PptxGenJS();
+  const aspect = layout.width / (layout.height + 108);
+  let sw = 50;
+  let sh = sw / aspect;
+  if (sh > 50) {
+    sh = 50;
+    sw = sh * aspect;
+  }
+  sh = Math.max(5.625, sh);
+  sw = Math.max(10, sw);
+  pptx.defineLayout({ name: "ATOMA_ORG", width: sw, height: sh });
+  pptx.layout = "ATOMA_ORG";
+  pptx.author = opts.generatedBy ?? "ATOMA";
+  pptx.subject = "Editable ATOMA organogram";
+  pptx.title = opts.title;
+  pptx.company = "ATOMA";
+  const slide = pptx.addSlide();
+  slide.background = { color: "FFFFFF" };
+  const sx = sw / layout.width;
+  const chartTop = 0.78;
+  const sy = (sh - chartTop - 0.34) / layout.height;
+  const X = (v: number) => v * sx;
+  const Y = (v: number) => chartTop + v * sy;
+
+  // Header band with the ATOMA double-chevron mark.
+  slide.addShape(pptx.ShapeType.rect, { x: 0, y: 0, w: sw, h: 0.7, fill: { color: "062B5B" }, line: { color: "062B5B" } });
+  slide.addShape(pptx.ShapeType.rect, { x: 0, y: 0.66, w: sw, h: 0.04, fill: { color: "00A8FF" }, line: { color: "00A8FF" } });
+  slide.addShape(pptx.ShapeType.chevron, { x: 0.18, y: 0.1, w: 0.38, h: 0.42, fill: { color: "2948FF" }, line: { color: "2948FF", transparency: 100 } });
+  slide.addShape(pptx.ShapeType.chevron, { x: 0.42, y: 0.1, w: 0.38, h: 0.42, fill: { color: "00BCEB", transparency: 4 }, line: { color: "00BCEB", transparency: 100 } });
+  slide.addText("ATOMA", { x: 0.82, y: 0.12, w: 0.9, h: 0.24, fontSize: 16, bold: true, color: "00A8FF", margin: 0 });
+  slide.addText(opts.title, { x: 1.62, y: 0.1, w: Math.max(2, sw - 2), h: 0.28, fontSize: 15, bold: true, color: "FFFFFF", margin: 0 });
+  slide.addText(opts.subtitle, { x: 1.62, y: 0.39, w: Math.max(2, sw - 2), h: 0.16, fontSize: 7, color: "CFE8FF", margin: 0 });
+
+  // Level rail and bands.
+  slide.addShape(pptx.ShapeType.rect, { x: X(12), y: chartTop, w: X(54), h: sy * layout.height, fill: { color: "FDE68A", transparency: 8 }, line: { color: "FDE68A", transparency: 100 } });
+  for (const layer of layout.layers) {
+    const start = Math.max(0, layer.offset - layout.gapMain / 2);
+    const size = layer.size + layout.gapMain;
+    if (layer.index > 0) slide.addShape(pptx.ShapeType.line, { x: X(70), y: Y(start), w: X(layout.width - 84), h: 0, line: { color: "F8B900", width: 1.2 } });
+    slide.addText(`${layer.level}${layer.continuation ? "*" : ""}`, { x: X(14), y: Y(start + size / 2) - 0.08, w: X(50), h: 0.16, fontSize: 7, bold: true, color: "0F172A", align: "center", margin: 0 });
+  }
+
+  // Editable connector line segments (one shape per leg).
+  for (const edge of layout.edges) {
+    const color = edge.inferred ? "F59E0B" : "1F2937";
+    const dashType = edge.inferred ? ("dash" as const) : ("solid" as const);
+    for (let i = 1; i < edge.points.length; i++) {
+      const [x1, y1] = edge.points[i - 1];
+      const [x2, y2] = edge.points[i];
+      slide.addShape(pptx.ShapeType.line, {
+        x: X(Math.min(x1, x2)),
+        y: Y(Math.min(y1, y2)),
+        w: Math.abs(x2 - x1) * sx,
+        h: Math.abs(y2 - y1) * sy,
+        flipH: x2 < x1,
+        flipV: y2 < y1,
+        line: { color, width: 0.8, dashType },
+      });
+    }
+  }
+
+  // Cards: shapes + independent text boxes.
+  for (const n of layout.nodes) {
+    const x = X(n.x - n.w / 2);
+    const y = Y(n.y);
+    const w = Math.max(0.35, n.w * sx);
+    const h = Math.max(0.2, n.h * sy);
+    if (n.kind === "group") {
+      const members = n.members ?? [];
+      const color = (LEVEL_COLORS[members[0]?.level ?? "L2"] ?? "64748B").replace("#", "");
+      slide.addShape(pptx.ShapeType.roundRect, { x, y, w, h, rectRadius: 0.03, fill: { color: "FFFFFF" }, line: { color, width: 0.7 } });
+      const text = members.map((m) => `${employeeStatus(m.emp).vacant ? "VACANT" : m.emp.fullName} — ${m.emp.title}`).join("\n");
+      slide.addText(text, { x: x + 0.04, y: y + 0.04, w: w - 0.08, h: h - 0.08, fontSize: Math.max(2.5, Math.min(5, w * 3)), color: "0F172A", margin: 0.02, fit: "shrink" });
+      continue;
+    }
+    const emp = n.node?.emp;
+    if (!emp) continue;
+    const st = employeeStatus(emp);
+    const level = n.node?.level ?? "L2";
+    const color = (LEVEL_COLORS[level] ?? "64748B").replace("#", "");
+    const fill = st.temporary ? "FEF08A" : "FFFFFF";
+    slide.addShape(pptx.ShapeType.roundRect, {
+      x,
+      y,
+      w,
+      h,
+      rectRadius: 0.03,
+      fill: { color: fill },
+      line: { color: st.vacant ? "64748B" : n.inferred ? "F59E0B" : "94A3B8", width: 0.7, dashType: st.vacant || n.inferred ? "dash" : "solid" },
+    });
+    slide.addShape(pptx.ShapeType.rect, { x, y, w, h: Math.min(0.045, h * 0.12), fill: { color }, line: { color } });
+    slide.addText(String(emp.title || "Position not specified"), {
+      x: x + 0.03,
+      y: y + h * 0.16,
+      w: w - 0.06,
+      h: h * 0.42,
+      fontSize: Math.max(3, Math.min(7, w * 4.4)),
+      bold: true,
+      color: "0F172A",
+      align: "center",
+      valign: "middle",
+      margin: 0,
+      fit: "shrink",
+    });
+    slide.addText(st.vacant ? "VACANT" : emp.fullName, {
+      x: x + 0.03,
+      y: y + h * 0.58,
+      w: w - 0.06,
+      h: h * 0.34,
+      fontSize: Math.max(2.6, Math.min(6, w * 3.8)),
+      color: "334155",
+      align: "center",
+      valign: "middle",
+      margin: 0,
+      fit: "shrink",
+    });
+    if (st.temporary) slide.addText("TEMP", { x: x + w - 0.22, y: y + 0.02, w: 0.2, h: 0.1, fontSize: 4, bold: true, color: "92400E", align: "right", margin: 0 });
+  }
+
+  // Legend + footer.
+  const legY = sh - 0.42;
+  let legX = Math.max(0.2, sw / 2 - 3.8);
+  const addLeg = (label: string, fill: string, line: string, dashType: "solid" | "dash" = "solid") => {
+    slide.addShape(pptx.ShapeType.rect, { x: legX, y: legY, w: 0.18, h: 0.1, fill: { color: fill }, line: { color: line, width: 0.5, dashType } });
+    slide.addText(label, { x: legX + 0.22, y: legY - 0.01, w: 0.95, h: 0.12, fontSize: 4.5, color: "64748B", margin: 0 });
+    legX += 1.17;
+  };
+  addLeg("Filled post", "FFFFFF", "94A3B8");
+  addLeg("Vacant post", "FFFFFF", "64748B", "dash");
+  addLeg("Temporary / contract", "FEF08A", "D97706");
+  addLeg("Inferred line", "FFFFFF", "F59E0B", "dash");
+  addLeg("Level band", "FDE68A", "FDE68A");
+  slide.addText(opts.footer ?? "Made with ♥ by Mohibullah Afzalzada", { x: 0.2, y: sh - 0.22, w: sw - 0.4, h: 0.12, fontSize: 6, color: "64748B", align: "center", margin: 0 });
+  await pptx.writeFile({ fileName: `ATOMA_Organogram_Editable_${stamp()}.pptx` });
+}
+
 export type { LNode, OrgLayout, PrintSheet };

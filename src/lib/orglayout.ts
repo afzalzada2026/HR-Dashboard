@@ -32,6 +32,10 @@ export interface LayoutOpts {
   gutter?: number;
   /** Wrap a level row when it would exceed this width (print optimisation). */
   maxRowWidth?: number;
+  /** Collapse control: children of an id return false are left out of the layout. */
+  isOpen?: (id: string) => boolean;
+  /** Maps a row index back to its level code (reversed when L1 is the top). */
+  levelAtLayer?: (layer: number) => OrgLevelCode;
 }
 
 export interface LNode {
@@ -145,6 +149,7 @@ interface V {
 
 export function layoutOrg(roots: OrgNode[], opts: LayoutOpts): OrgLayout {
   const o = { groupThreshold: 4, groupMax: 24, gapCross: 14, gapMain: GAP_MAIN, padding: 22, gutter: 84, maxRowWidth: Infinity, ...opts };
+  const levelAt = o.levelAtLayer ?? ((layer: number) => LEVEL_ORDER[layer] ?? "L2");
   const finiteRootLevels = roots.map(o.layerOf).filter(Number.isFinite);
   const levelOffset = finiteRootLevels.length ? Math.min(...finiteRootLevels) : 0;
   const nodes: LNode[] = [];
@@ -170,16 +175,17 @@ export function layoutOrg(roots: OrgNode[], opts: LayoutOpts): OrgLayout {
     };
     nodes.push(ln);
     const v: V = { ln, children: [], extent: o.card.w, center: 0 };
+    const visibleChildren = (o.isOpen?.(n.id) ?? true) ? n.children : [];
     const kids: { layer: number; order: number; v: V }[] = [];
     let order = 0;
 
-    for (const staffNode of n.children.filter((c) => c.staff)) {
+    for (const staffNode of visibleChildren.filter((c) => c.staff)) {
       const sl: LNode = { id: staffNode.id, kind: "staff", node: staffNode, layer: normalizedLevel(staffNode), parent: ln.id, x: 0, y: 0, w: o.card.w, h: o.card.h, inferred: staffNode.link.startsWith("inferred"), groupKey };
       nodes.push(sl);
       kids.push({ layer, order: order++, v: { ln: sl, children: [], extent: 0, center: 0 } });
     }
 
-    const reports = n.children.filter((c) => !c.staff);
+    const reports = visibleChildren.filter((c) => !c.staff);
     const hasNested = (c: OrgNode) => c.children.some((g) => !g.staff);
     for (const child of reports.filter(hasNested)) kids.push({ layer: normalizedLevel(child), order: order++, v: build(child, ln, `${groupKey}/${child.id}`) });
 
@@ -192,7 +198,7 @@ export function layoutOrg(roots: OrgNode[], opts: LayoutOpts): OrgLayout {
       if (list.length > o.groupThreshold) {
         // Lower bands (L2/L1) carry most of the headcount: give their roster cards
         // more capacity so the level band can accommodate staff and stay printable.
-        const levelName = LEVEL_ORDER[L];
+        const levelName = levelAt(L);
         const capacity = levelName === "L1" || levelName === "L2" ? Math.max(o.groupMax, 48) : o.groupMax;
         for (let start = 0; start < list.length; start += capacity) {
           const chunkMembers = list.slice(start, start + capacity);
@@ -284,11 +290,12 @@ export function layoutOrg(roots: OrgNode[], opts: LayoutOpts): OrgLayout {
   const layers: LayerInfo[] = [];
   rows.forEach((row, index) => {
     const size = row.nodes.reduce((m, n) => Math.max(m, sizeOf(n).h), o.card.h);
+    const rowLevel = levelAt(row.level);
     layers.push({
       index,
       actualPosition: row.level,
-      level: (LEVEL_ORDER[row.level] ?? "L2") as OrgLevelCode,
-      band: bandLabel((LEVEL_ORDER[row.level] ?? "L2") as OrgLevelCode),
+      level: rowLevel,
+      band: bandLabel(rowLevel),
       offset: cursorY,
       size,
       count: row.nodes.reduce((a, n) => a + (n.kind === "group" ? n.members!.length : 1), 0),
