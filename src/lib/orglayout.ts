@@ -32,6 +32,10 @@ export interface LayoutOpts {
   gutter?: number;
   /** Wrap a level row when it would exceed this width (print optimisation). */
   maxRowWidth?: number;
+  /** Collapse control: children of an id return false are left out of the layout. */
+  isOpen?: (id: string) => boolean;
+  /** Maps a row index back to its level code (reversed when L1 is the top). */
+  levelAtLayer?: (layer: number) => OrgLevelCode;
 }
 
 export interface LNode {
@@ -145,6 +149,7 @@ interface V {
 
 export function layoutOrg(roots: OrgNode[], opts: LayoutOpts): OrgLayout {
   const o = { groupThreshold: 4, groupMax: 24, gapCross: 14, gapMain: GAP_MAIN, padding: 22, gutter: 84, maxRowWidth: Infinity, ...opts };
+  const levelAt = o.levelAtLayer ?? ((layer: number) => LEVEL_ORDER[layer] ?? "L2");
   const finiteRootLevels = roots.map(o.layerOf).filter(Number.isFinite);
   const levelOffset = finiteRootLevels.length ? Math.min(...finiteRootLevels) : 0;
   const nodes: LNode[] = [];
@@ -170,16 +175,17 @@ export function layoutOrg(roots: OrgNode[], opts: LayoutOpts): OrgLayout {
     };
     nodes.push(ln);
     const v: V = { ln, children: [], extent: o.card.w, center: 0 };
+    const visibleChildren = (o.isOpen?.(n.id) ?? true) ? n.children : [];
     const kids: { layer: number; order: number; v: V }[] = [];
     let order = 0;
 
-    for (const staffNode of n.children.filter((c) => c.staff)) {
+    for (const staffNode of visibleChildren.filter((c) => c.staff)) {
       const sl: LNode = { id: staffNode.id, kind: "staff", node: staffNode, layer: normalizedLevel(staffNode), parent: ln.id, x: 0, y: 0, w: o.card.w, h: o.card.h, inferred: staffNode.link.startsWith("inferred"), groupKey };
       nodes.push(sl);
       kids.push({ layer, order: order++, v: { ln: sl, children: [], extent: 0, center: 0 } });
     }
 
-    const reports = n.children.filter((c) => !c.staff);
+    const reports = visibleChildren.filter((c) => !c.staff);
     const hasNested = (c: OrgNode) => c.children.some((g) => !g.staff);
     for (const child of reports.filter(hasNested)) kids.push({ layer: normalizedLevel(child), order: order++, v: build(child, ln, `${groupKey}/${child.id}`) });
 
@@ -192,7 +198,7 @@ export function layoutOrg(roots: OrgNode[], opts: LayoutOpts): OrgLayout {
       if (list.length > o.groupThreshold) {
         // Lower bands (L2/L1) carry most of the headcount: give their roster cards
         // more capacity so the level band can accommodate staff and stay printable.
-        const levelName = LEVEL_ORDER[L];
+        const levelName = levelAt(L);
         const capacity = levelName === "L1" || levelName === "L2" ? Math.max(o.groupMax, 48) : o.groupMax;
         for (let start = 0; start < list.length; start += capacity) {
           const chunkMembers = list.slice(start, start + capacity);
@@ -248,8 +254,8 @@ export function layoutOrg(roots: OrgNode[], opts: LayoutOpts): OrgLayout {
 
   for (const level of [...levelNodes.keys()].sort((a, b) => a - b)) {
     const inLevel = (levelNodes.get(level) ?? []).sort((a, b) => a.x - b.x);
-    const minX = inLevel.reduce((m, n) => Math.min(m, n.x - sizeOf(n).w / 2), Infinity);
-    const maxX = inLevel.reduce((m, n) => Math.max(m, n.x + sizeOf(n).w / 2), -Infinity);
+    const minX = inLevel.reduce((m, n) => Math.min(m, n.x), Infinity);
+    const maxX = inLevel.reduce((m, n) => Math.max(m, n.x + sizeOf(n).w), -Infinity);
     const tooWide = Number.isFinite(o.maxRowWidth) && maxX - minX > o.maxRowWidth - (o.padding + o.gutter) * 2;
     if (!tooWide) {
       rows.push({ nodes: inLevel, level, continuation: false, repack: false });
@@ -284,11 +290,12 @@ export function layoutOrg(roots: OrgNode[], opts: LayoutOpts): OrgLayout {
   const layers: LayerInfo[] = [];
   rows.forEach((row, index) => {
     const size = row.nodes.reduce((m, n) => Math.max(m, sizeOf(n).h), o.card.h);
+    const rowLevel = levelAt(row.level);
     layers.push({
       index,
       actualPosition: row.level,
-      level: (LEVEL_ORDER[row.level] ?? "L2") as OrgLevelCode,
-      band: bandLabel((LEVEL_ORDER[row.level] ?? "L2") as OrgLevelCode),
+      level: rowLevel,
+      band: bandLabel(rowLevel),
       offset: cursorY,
       size,
       count: row.nodes.reduce((a, n) => a + (n.kind === "group" ? n.members!.length : 1), 0),
@@ -302,7 +309,7 @@ export function layoutOrg(roots: OrgNode[], opts: LayoutOpts): OrgLayout {
       for (const group of ordered) {
         let cursor = x;
         for (const n of group) {
-          n.x = cursor + sizeOf(n).w / 2;
+          n.x = cursor; // LNode.x is the card's LEFT edge (matches every renderer)
           cursor += sizeOf(n).w + o.gapCross;
         }
         x = cursor + o.gapCross * 0.5;
@@ -335,8 +342,8 @@ export function layoutOrg(roots: OrgNode[], opts: LayoutOpts): OrgLayout {
     let rightEdge = -Infinity;
     for (const n of sorted) {
       const w = sizeOf(n).w;
-      if (n.x - w / 2 < rightEdge + 10) n.x = rightEdge + 10 + w / 2;
-      rightEdge = n.x + w / 2;
+      if (n.x < rightEdge + 10) n.x = rightEdge + 10;
+      rightEdge = n.x + w;
     }
   }
 
@@ -344,17 +351,18 @@ export function layoutOrg(roots: OrgNode[], opts: LayoutOpts): OrgLayout {
   const rootNode = nodes.find((n) => n.id === (roots[0]?.id ?? ""));
   let minX = Infinity;
   let maxX = -Infinity;
+  const rootSize = rootNode ? sizeOf(rootNode).w : 0;
   for (const n of nodes) {
     const w = sizeOf(n).w;
-    minX = Math.min(minX, n.x - w / 2);
-    maxX = Math.max(maxX, n.x + w / 2);
+    minX = Math.min(minX, n.x);
+    maxX = Math.max(maxX, n.x + w);
   }
   const margin = o.padding + o.gutter;
-  const halfSpan = rootNode ? Math.max(rootNode.x - minX, maxX - rootNode.x) : (maxX - minX) / 2;
-  const naturalWidth = halfSpan * 2 + margin * 2;
+  const halfSpan = rootNode ? Math.max(rootNode.x - minX, maxX - (rootNode.x + rootSize)) : (maxX - minX) / 2;
+  const naturalWidth = (halfSpan + rootSize / 2) * 2 + margin * 2;
   const contentWidth = maxX - minX + margin * 2;
-  const sheetWidth = Number.isFinite(o.maxRowWidth) ? Math.max(720, Math.min(naturalWidth, Math.max(contentWidth, o.maxRowWidth))) : Math.max(720, naturalWidth);
-  const shift = rootNode ? sheetWidth / 2 - rootNode.x : 0;
+  const sheetWidth = Number.isFinite(o.maxRowWidth) ? Math.max(720, Math.min(Math.max(naturalWidth, contentWidth), Math.max(contentWidth, o.maxRowWidth))) : Math.max(720, naturalWidth, contentWidth);
+  const shift = rootNode ? sheetWidth / 2 - (rootNode.x + rootSize / 2) : 0;
   for (const n of nodes) n.x += shift;
 
   // ── 7. orthogonal connectors: bus under the parent row, arrows at each child ──
@@ -365,7 +373,7 @@ export function layoutOrg(roots: OrgNode[], opts: LayoutOpts): OrgLayout {
     for (const n of nodes) {
       if (except.has(n.id)) continue;
       const s = sizeOf(n);
-      if (Math.abs(n.x - x) > s.w / 2 - 3) continue;
+      if (x < n.x + 3 || x > n.x + s.w - 3) continue;
       if (n.y < hi && n.y + s.h > lo) return true;
     }
     return false;
@@ -384,13 +392,13 @@ export function layoutOrg(roots: OrgNode[], opts: LayoutOpts): OrgLayout {
     if (n.kind === "staff") {
       const yMid = p.y + ps.h / 2;
       pushEdge("staff", p.id, n.id, inferred, [
-        [p.x + ps.w / 2, yMid],
-        [n.x - ns.w / 2, yMid],
+        [p.x + ps.w, yMid],
+        [n.x, yMid],
       ]);
       continue;
     }
-    const x1 = p.x;
-    const x2 = n.x;
+    const x1 = p.x + ps.w / 2;
+    const x2 = n.x + ns.w / 2;
     const y1 = p.y + ps.h;
     const y2 = n.y;
     const parentRow = layers[rowOf.get(p.id) ?? 0];
@@ -405,7 +413,7 @@ export function layoutOrg(roots: OrgNode[], opts: LayoutOpts): OrgLayout {
       for (const other of nodes) {
         if (except.has(other.id)) continue;
         const sz = sizeOf(other);
-        if (other.y < y && other.y + sz.h > y && other.x - sz.w / 2 < hi && other.x + sz.w / 2 > lo) return false;
+        if (other.y < y && other.y + sz.h > y && other.x < hi && other.x + sz.w > lo) return false;
       }
       return true;
     };
@@ -439,7 +447,7 @@ export function layoutOrg(roots: OrgNode[], opts: LayoutOpts): OrgLayout {
   let height = 0;
   for (const n of nodes) {
     const s = sizeOf(n);
-    width = Math.max(width, n.x + s.w / 2 + margin);
+    width = Math.max(width, n.x + s.w + margin);
     height = Math.max(height, n.y + s.h);
   }
   const wrapped = layers.some((l) => l.continuation);
