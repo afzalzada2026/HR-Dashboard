@@ -1,0 +1,149 @@
+import type { Employee } from "./types";
+
+/**
+ * Company level model — understands L1 … L6 plus intermediate grades such as L3H,
+ * tolerant of spelling variants ("Level 3", "L-3", "Grade 3", "3", "L3-H").
+ * Seniority direction (is L1 or L6 the top?) is auto-detected from titles / headcount and can be overridden.
+ */
+export type SeniorityDirection = "auto" | "high-top" | "low-top";
+export type Direction = Exclude<SeniorityDirection, "auto">;
+export type Band = "Executive" | "Senior Management" | "Management" | "Professional" | "Staff" | "Unspecified";
+
+export const BANDS: Band[] = ["Executive", "Senior Management", "Management", "Professional", "Staff", "Unspecified"];
+export const MANAGEMENT_BANDS: Band[] = ["Executive", "Senior Management", "Management"];
+export const UNSPECIFIED = "Unspecified";
+const LEVEL_COLORS = ["#062B5B", "#0D47A1", "#1E63D0", "#7C3AED", "#0891B2", "#059669", "#65A30D", "#D97706", "#64748B"];
+const EXEC_RE = /\b(chief|ceo|cfo|coo|cto|cio|chro|cmo|cso|president|executive|director|head|vp|vice\s?president|general manager|managing)\b/i;
+
+export interface LevelInfo {
+  label: string;      // normalised label, e.g. "L3H"
+  rank: number;       // numeric rank (L3H → 3.5); NaN for unspecified
+  sen: number;        // seniority value — larger = more senior (direction applied)
+  position: number;   // 0 = most senior
+  band: Band;
+  color: string;
+  count: number;
+  female: number;
+  avgAge: number;
+  avgTenure: number;
+  topTitles: string[];
+}
+
+export interface DirectionDetection { direction: Direction; confidence: number; reason: string; auto: boolean }
+
+export function normalizeLevelLabel(raw: unknown): string {
+  const s = String(raw ?? "").trim().toUpperCase().replace(/\s+/g, "");
+  if (!s) return "";
+  const m = s.match(/^(?:L|LEVEL|LVL|G|GRADE|BAND|TIER)?[-_.]?(\d{1,2})[-_.]?([A-Z]{0,2})$/);
+  if (m) return `L${parseInt(m[1], 10)}${m[2]}`;
+  return s;
+}
+
+export function levelRank(label: string): number {
+  const n = normalizeLevelLabel(label);
+  const m = n.match(/^L(\d{1,2})([A-Z]{0,2})$/);
+  if (!m) return NaN;
+  let r = parseInt(m[1], 10);
+  if (m[2] === "H") r += 0.5;            // "Head" grade sits half a step above its base level
+  else if (m[2]) r += (m[2].charCodeAt(0) - 64) * 0.1;
+  return r;
+}
+
+export function levelKey(e: Employee): string {
+  return normalizeLevelLabel(e.actualLevel) || UNSPECIFIED;
+}
+
+/** Larger = more senior. Unspecified levels sink to the bottom. */
+export function seniorityValue(e: Employee, direction: Direction): number {
+  const r = levelRank(e.actualLevel);
+  if (isNaN(r)) return -1e6;
+  return direction === "high-top" ? r : -r;
+}
+
+export function detectDirection(data: Employee[]): DirectionDetection {
+  const groups = new Map<number, { count: number; exec: number; label: string }>();
+  for (const e of data) {
+    const r = levelRank(e.actualLevel);
+    if (isNaN(r)) continue;
+    const g = groups.get(r) ?? { count: 0, exec: 0, label: normalizeLevelLabel(e.actualLevel) };
+    g.count++;
+    if (EXEC_RE.test(e.title || "")) g.exec++;
+    groups.set(r, g);
+  }
+  if (groups.size < 2) return { direction: "high-top", confidence: 0, reason: "Fewer than two levels found — assuming the highest number is the most senior.", auto: true };
+  const ranks = Array.from(groups.keys()).sort((a, b) => a - b);
+  const lo = groups.get(ranks[0])!;
+  const hi = groups.get(ranks[ranks.length - 1])!;
+  const hiShare = hi.exec / hi.count;
+  const loShare = lo.exec / lo.count;
+  const d = hiShare - loShare;
+  if (Math.abs(d) >= 0.05) {
+    const top = d > 0 ? hi : lo;
+    return { direction: d > 0 ? "high-top" : "low-top", confidence: Math.min(1, Math.abs(d) * 2 + 0.3), reason: `${top.label} holds ${Math.round(Math.max(hiShare, loShare) * 100)}% executive titles (Chief / Director / Head).`, auto: true };
+  }
+  const direction: Direction = hi.count <= lo.count ? "high-top" : "low-top";
+  return { direction, confidence: 0.4, reason: `Headcount pyramid — ${hi.label}: ${hi.count} vs ${lo.label}: ${lo.count} employees.`, auto: true };
+}
+
+export function resolveDirection(pref: SeniorityDirection, data: Employee[]): DirectionDetection {
+  if (pref === "auto") return detectDirection(data);
+  return { direction: pref, confidence: 1, reason: pref === "high-top" ? "Company level order: L6 is the top of the organisation and L1 the bottom (L3H sits between L4 and L3)." : "Reversed order: L1 is the top of the organisation.", auto: false };
+}
+
+function assignBands(ordered: string[]): Band[] {
+  const n = ordered.length;
+  let lastMgmt = Math.min(n - 1, 2);
+  ordered.forEach((l, i) => { if (/H$/.test(l) && i > lastMgmt && i <= n / 2) lastMgmt = i; });
+  const remaining = n - (lastMgmt + 1);
+  const professional = Math.ceil(remaining / 2);
+  const out: Band[] = [];
+  for (let i = 0; i < n; i++) {
+    if (i === 0) out.push("Executive");
+    else if (i === 1) out.push("Senior Management");
+    else if (i <= lastMgmt) out.push("Management");
+    else if (i <= lastMgmt + professional) out.push("Professional");
+    else out.push("Staff");
+  }
+  return out;
+}
+
+export function analyzeLevels(data: Employee[], direction: Direction): LevelInfo[] {
+  const map = new Map<string, Employee[]>();
+  for (const e of data) {
+    const l = levelKey(e);
+    if (!map.has(l)) map.set(l, []);
+    map.get(l)!.push(e);
+  }
+  const known = Array.from(map.keys()).filter((l) => !isNaN(levelRank(l))).sort((a, b) => (direction === "high-top" ? levelRank(b) - levelRank(a) : levelRank(a) - levelRank(b)));
+  const unknown = Array.from(map.keys()).filter((l) => isNaN(levelRank(l)));
+  const bands = assignBands(known);
+  const build = (label: string, position: number, band: Band): LevelInfo => {
+    const rows = map.get(label)!;
+    const titles = new Map<string, number>();
+    rows.forEach((e) => { const t = (e.title || "").split(",")[0].trim(); if (t) titles.set(t, (titles.get(t) ?? 0) + 1); });
+    const rank = levelRank(label);
+    return {
+      label, rank, position, band,
+      sen: isNaN(rank) ? -1e6 : direction === "high-top" ? rank : -rank,
+      color: band === "Unspecified" ? "#94A3B8" : LEVEL_COLORS[Math.min(position, LEVEL_COLORS.length - 1)],
+      count: rows.length,
+      female: rows.filter((e) => e.gender === "Female").length,
+      avgAge: rows.reduce((a, e) => a + (e.age || 0), 0) / Math.max(1, rows.length),
+      avgTenure: rows.reduce((a, e) => a + (e.tenure || 0), 0) / Math.max(1, rows.length),
+      topTitles: Array.from(titles.entries()).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([t]) => t),
+    };
+  };
+  const infos = known.map((label, i) => build(label, i, bands[i]));
+  unknown.forEach((label, j) => infos.push(build(label, known.length + j, "Unspecified")));
+  return infos;
+}
+
+export function levelIndex(levels: LevelInfo[]): Map<string, LevelInfo> {
+  return new Map(levels.map((l) => [l.label, l]));
+}
+
+export function levelOrderLabel(levels: LevelInfo[]): string {
+  const known = levels.filter((l) => l.band !== "Unspecified");
+  if (known.length < 2) return known[0]?.label ?? "—";
+  return `${known[0].label} → ${known[known.length - 1].label}`;
+}

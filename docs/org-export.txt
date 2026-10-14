@@ -1,0 +1,300 @@
+"use client";
+import { groupCardGrid, type OrgLayout, type LNode } from "./orglayout";
+import type { LevelInfo } from "./levels";
+import type { Employee } from "./types";
+import { stamp } from "./capture";
+
+export interface OrgExportOpts {
+  title: string;
+  subtitle: string;
+  generatedBy?: string;
+  footer?: string;
+}
+
+const esc = (s: unknown) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const status = (e: Employee) => {
+  const all = `${e.fullName} ${e.title} ${e.remarks}`.toLowerCase();
+  const vacant = !e.fullName || /\b(vacant|vacancy|unfilled|tbd|to be hired)\b/.test(all) || /^(unknown|vacant)$/i.test(e.fullName.trim());
+  const temporary = !vacant && /\b(temp|temporary|contract|contractor|acting|interim)\b/.test(all);
+  return { vacant, temporary };
+};
+const displayLevel = (s?: string) => (s || "—").replace(/^L/i, "");
+const initials = (e: Employee) => `${e.firstName?.[0] ?? e.fullName?.[0] ?? ""}${e.lastName?.[0] ?? ""}`.toUpperCase();
+const wrap = (text: string, max = 28, lines = 2): string[] => {
+  const words = (text || "").split(/\s+/).filter(Boolean), out: string[] = [];
+  let line = "";
+  for (const w of words) {
+    if (`${line} ${w}`.trim().length > max && line) { out.push(line); line = w; if (out.length === lines - 1) break; }
+    else line = `${line} ${w}`.trim();
+  }
+  if (line && out.length < lines) out.push(line);
+  const used = out.join(" ").split(/\s+/).length;
+  if (used < words.length && out.length) out[out.length - 1] = `${out[out.length - 1].replace(/…$/, "")}…`;
+  return out;
+};
+const colorFor = (levels: LevelInfo[], layout: OrgLayout, n: LNode) => levels[layout.layers[n.layer]?.actualPosition ?? -1]?.color ?? "#64748B";
+const levelFor = (levels: LevelInfo[], layout: OrgLayout, n: LNode) => levels[layout.layers[n.layer]?.actualPosition ?? -1];
+
+function nodeSvg(n: LNode, levels: LevelInfo[], layout: OrgLayout): string {
+  const e = n.node!.emp, st = status(e), color = colorFor(levels, layout, n);
+  const fill = st.temporary ? "#FEF08A" : st.vacant ? "#FFFFFF" : "#FFFFFF";
+  const dash = st.vacant || n.inferred ? ` stroke-dasharray="5 4"` : "";
+  const stroke = st.vacant ? "#64748B" : n.inferred ? "#F59E0B" : "#94A3B8";
+  const name = st.vacant ? "VACANT" : e.fullName;
+  const title = wrap(e.title, Math.max(18, Math.floor(n.w / 7.2)), 2);
+  const nameY = n.y + 31;
+  const titleY = n.y + 48;
+  return `<g data-employee="${esc(e.employeeNo)}">
+    <rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="5" fill="${fill}" stroke="${stroke}" stroke-width="${n.inferred ? 1.8 : 1.2}"${dash}/>
+    <rect x="${n.x}" y="${n.y}" width="${n.w}" height="6" rx="5" fill="${color}"/>
+    <circle cx="${n.x + 20}" cy="${n.y + 27}" r="12" fill="${st.vacant ? "#64748B" : color}"/>
+    <text x="${n.x + 20}" y="${n.y + 31}" text-anchor="middle" font-size="8.5" font-weight="700" fill="#fff">${st.vacant ? "V" : esc(initials(e))}</text>
+    <text x="${n.x + 38}" y="${nameY}" font-size="10.5" font-weight="700" fill="#0F172A">${esc(name)}</text>
+    ${title.map((t, i) => `<text x="${n.x + 10}" y="${titleY + i * 12}" font-size="9" fill="#334155">${esc(t)}</text>`).join("")}
+    <rect x="${n.x + 10}" y="${n.y + n.h - 21}" width="28" height="14" rx="3" fill="${color}"/>
+    <text x="${n.x + 24}" y="${n.y + n.h - 11}" text-anchor="middle" font-size="8" font-weight="700" fill="#fff">${esc(displayLevel(e.actualLevel))}</text>
+    <text x="${n.x + 43}" y="${n.y + n.h - 11}" font-size="8" fill="#64748B">${esc(e.department).slice(0, 24)}</text>
+    ${st.temporary ? `<text x="${n.x + n.w - 8}" y="${n.y + 16}" text-anchor="end" font-size="8" font-weight="700" fill="#92400E">TEMP</text>` : ""}
+  </g>`;
+}
+
+function groupSvg(n: LNode, levels: LevelInfo[], layout: OrgLayout): string {
+  const members = n.members ?? [], color = colorFor(levels, layout, n), level = levelFor(levels, layout, n);
+  const grid = groupCardGrid(members.length), colW = (n.w - 12) / grid.cols, rowH = 26;
+  const rows = members.map((m, i) => {
+    const col = i % grid.cols, row = Math.floor(i / grid.cols), x = n.x + 6 + col * colW, y = n.y + 36 + row * rowH;
+    const st = status(m.emp), fill = st.temporary ? "#FEF08A" : st.vacant ? "#fff" : "#F8FAFC";
+    return `<rect x="${x}" y="${y}" width="${colW - 4}" height="${rowH - 3}" rx="3" fill="${fill}" stroke="${st.vacant ? "#64748B" : "#E2E8F0"}" ${st.vacant ? `stroke-dasharray="3 2"` : ""}/>
+      <text x="${x + 5}" y="${y + 9}" font-size="7.5" font-weight="700" fill="#0F172A">${esc(st.vacant ? "VACANT" : m.emp.fullName).slice(0, 25)}</text>
+      <text x="${x + 5}" y="${y + 18}" font-size="6.8" fill="#64748B">${esc(m.emp.title).slice(0, 31)}</text>`;
+  }).join("");
+  return `<g><rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="5" fill="#fff" stroke="${color}" stroke-width="1.2"/>
+    <rect x="${n.x}" y="${n.y}" width="${n.w}" height="30" rx="5" fill="#F8FAFC"/>
+    <rect x="${n.x + 8}" y="${n.y + 8}" width="26" height="14" rx="3" fill="${color}"/>
+    <text x="${n.x + 21}" y="${n.y + 18}" text-anchor="middle" font-size="8" font-weight="700" fill="#fff">${esc(displayLevel(level?.label))}</text>
+    <text x="${n.x + 40}" y="${n.y + 18}" font-size="8.5" font-weight="700" fill="#0F172A">${members.length} positions at this level</text>${rows}</g>`;
+}
+
+export function buildOrgSvg(layout: OrgLayout, levels: LevelInfo[], opts: OrgExportOpts): string {
+  const headerH = 74, footerH = 54, chartY = headerH;
+  const width = Math.max(900, layout.width), height = layout.height + headerH + footerH;
+  const bands = layout.layers.map((L) => {
+    const info = levels[L.actualPosition], start = Math.max(0, L.offset - layout.gapMain / 2) + chartY, size = L.size + layout.gapMain;
+    return `<rect x="0" y="${start}" width="${width}" height="${size}" fill="${L.index % 2 ? "#F8FAFC" : "#FFFFFF"}"/>
+      ${L.index > 0 ? `<line x1="12" y1="${start}" x2="${width - 12}" y2="${start}" stroke="#F8B900" stroke-width="2"/>` : ""}
+      <text x="36" y="${start + size / 2 - 3}" text-anchor="middle" font-size="13" font-weight="800" fill="#0F172A">${esc(displayLevel(info?.label) + (L.continuation ? " cont." : ""))}</text>
+      <text x="36" y="${start + size / 2 + 11}" text-anchor="middle" font-size="8" fill="#475569">${L.count}</text>
+      <text x="70" y="${start + 13}" font-size="8" font-weight="700" fill="#64748B">${esc(info?.band ?? "Unspecified")}</text>`;
+  }).join("");
+  const edges = layout.edges.map((e) => `<path d="${e.d}" fill="none" stroke="${e.inferred ? "#F59E0B" : "#1F2937"}" stroke-width="1.25" ${e.inferred ? `stroke-dasharray="5 4"` : ""}/>`).join("");
+  const nodes = layout.nodes.map((n) => {
+    const copy = { ...n, y: n.y + chartY };
+    return n.kind === "node" ? nodeSvg(copy, levels, { ...layout, layers: layout.layers.map((l) => ({ ...l, offset: l.offset + chartY })) }) : groupSvg(copy, levels, layout);
+  }).join("");
+  const footer = opts.footer ?? "Made with ♥ by Mohibullah Afzalzada";
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+  <metadata>ATOMA Workforce Intelligence · generated ${new Date().toISOString()} · editable vector organogram</metadata>
+  <rect width="${width}" height="${height}" fill="#FFFFFF"/>
+  <rect width="${width}" height="${headerH}" fill="#062B5B"/>
+  <rect y="${headerH - 4}" width="${width}" height="4" fill="#00A8FF"/>
+  <rect x="18" y="13" width="60" height="46" rx="9" fill="#fff" fill-opacity=".96"/>
+  <path d="M24 24 L39 36 L24 49 L30 55 L52 36 L30 18 Z" fill="#2948FF"/>
+  <path d="M44 24 L59 36 L44 49 L50 55 L72 36 L50 18 Z" fill="#00BCEB" fill-opacity=".96"/>
+  <text x="88" y="34" font-family="Arial,sans-serif" font-size="20" font-weight="800" fill="#fff">${esc(opts.title)}</text>
+  <text x="88" y="52" font-family="Arial,sans-serif" font-size="10" fill="#CFE8FF">${esc(opts.subtitle)}</text>
+  <text x="${width - 20}" y="35" text-anchor="end" font-family="Arial,sans-serif" font-size="9" fill="#CFE8FF">ATOMA · Workforce Intelligence</text>
+  <g transform="translate(0 0)"><rect x="12" y="${chartY}" width="48" height="${layout.height}" fill="#FDE68A" fill-opacity="0.9"/>${bands}<g transform="translate(0 ${chartY})">${edges}</g>${nodes}</g>
+  <line x1="20" y1="${height - footerH + 4}" x2="${width - 20}" y2="${height - footerH + 4}" stroke="#E2E8F0"/>
+  <g transform="translate(${Math.max(20, width / 2 - 245)} ${height - footerH + 12})" font-family="Arial,sans-serif" font-size="8" fill="#475569">
+    <rect x="0" y="0" width="22" height="12" rx="2" fill="#fff" stroke="#94A3B8"/><text x="28" y="9">Filled post</text>
+    <rect x="96" y="0" width="22" height="12" rx="2" fill="#fff" stroke="#64748B" stroke-dasharray="4 3"/><text x="124" y="9">Vacant post</text>
+    <rect x="196" y="0" width="22" height="12" rx="2" fill="#FEF08A" stroke="#D97706"/><text x="224" y="9">Temporary / contract</text>
+    <line x1="340" y1="6" x2="362" y2="6" stroke="#F59E0B" stroke-width="1.5" stroke-dasharray="5 4"/><text x="368" y="9">Inferred line</text>
+    <rect x="450" y="0" width="12" height="12" fill="#FDE68A"/><text x="468" y="9">Level band</text>
+  </g>
+  <text x="${width / 2}" y="${height - 9}" text-anchor="middle" font-family="Arial,sans-serif" font-size="9" fill="#64748B">${esc(footer)}</text>
+</svg>`;
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = filename; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+export function downloadOrgSvg(layout: OrgLayout, levels: LevelInfo[], opts: OrgExportOpts) {
+  downloadBlob(new Blob([buildOrgSvg(layout, levels, opts)], { type: "image/svg+xml;charset=utf-8" }), `ATOMA_Organogram_${stamp()}.svg`);
+}
+
+/** Native, editable Microsoft Visio drawing (VSDX). Legacy VSD is a proprietary binary format; VSDX is its modern replacement. */
+export async function downloadOrgVisio(layout: OrgLayout, levels: LevelInfo[], opts: OrgExportOpts): Promise<{ shapes: number; texts: number }> {
+  const host = document.createElement("div");
+  // Keep the SVG fully rendered (not visibility:hidden) because Visio conversion reads getBBox / computed style.
+  host.style.cssText = "position:fixed;left:-100000px;top:0;pointer-events:none;z-index:-9999";
+  host.innerHTML = buildOrgSvg(layout, levels, opts);
+  document.body.appendChild(host);
+  try {
+    const svg = host.querySelector("svg") as SVGSVGElement | null;
+    if (!svg) throw new Error("Could not prepare the organogram SVG for Visio.");
+    const { svgElementToVsdx } = await import("@klyratech/mermaid-to-visio");
+    const { bytes, stats } = svgElementToVsdx(svg, { title: opts.title });
+    const copy = new Uint8Array(bytes.byteLength); copy.set(bytes);
+    downloadBlob(new Blob([copy.buffer], { type: "application/vnd.ms-visio.drawing" }), `ATOMA_Organogram_Editable_${stamp()}.vsdx`);
+    return stats;
+  } finally { host.remove(); }
+}
+
+export async function downloadOrgVectorPdf(layout: OrgLayout, levels: LevelInfo[], opts: OrgExportOpts): Promise<number> {
+  const { jsPDF } = await import("jspdf");
+  const aspect = layout.width / (layout.height + 108);
+  const maxMm = 1200;
+  let targetW = maxMm, targetH = targetW / aspect;
+  if (targetH > maxMm) { targetH = maxMm; targetW = targetH * aspect; }
+  targetW = Math.max(160, targetW); targetH = Math.max(100, targetH);
+  const doc = new jsPDF({ orientation: targetW >= targetH ? "landscape" : "portrait", unit: "mm", format: [targetW, targetH], compress: true });
+  const PW = doc.internal.pageSize.getWidth(), PH = doc.internal.pageSize.getHeight();
+  const header = Math.min(22, PH * 0.16), footer = Math.min(18, PH * 0.13), margin = Math.min(4, PW * 0.005);
+  const scale = Math.min((PW - margin * 2) / layout.width, (PH - header - footer) / layout.height);
+  const ox = (PW - layout.width * scale) / 2, oy = header;
+  const X = (v: number) => ox + v * scale, Y = (v: number) => oy + v * scale;
+  const mm = (v: number) => v * scale;
+  const rgb = (hex: string): [number, number, number] => {
+    const h = hex.replace("#", "").padEnd(6, "0"); return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+  };
+  const fillHex = (h: string) => { const [r, g, b] = rgb(h); doc.setFillColor(r, g, b); };
+  const strokeHex = (h: string) => { const [r, g, b] = rgb(h); doc.setDrawColor(r, g, b); };
+
+  fillHex("#062B5B"); doc.rect(0, 0, PW, header, "F");
+  fillHex("#00A8FF"); doc.rect(0, header - Math.min(1.2, header * 0.06), PW, Math.min(1.2, header * 0.06), "F");
+  // ATOMA double-chevron mark.
+  fillHex("#FFFFFF"); doc.roundedRect(margin + 1, header * 0.12, header * 0.95, header * 0.65, 1.5, 1.5, "F");
+  fillHex("#2948FF"); doc.triangle(margin + 3, header * 0.25, margin + 9, header * 0.45, margin + 3, header * 0.67, "F"); doc.triangle(margin + 7, header * 0.25, margin + 13, header * 0.45, margin + 7, header * 0.67, "F");
+  fillHex("#00BCEB"); doc.triangle(margin + 11, header * 0.25, margin + 17, header * 0.45, margin + 11, header * 0.67, "F"); doc.triangle(margin + 15, header * 0.25, margin + 21, header * 0.45, margin + 15, header * 0.67, "F");
+  doc.setFont("helvetica", "bold"); doc.setTextColor(255, 255, 255); doc.setFontSize(Math.max(8, header * 0.75)); doc.text(opts.title, margin + header * 1.12, header * 0.45);
+  doc.setFont("helvetica", "normal"); doc.setTextColor(200, 232, 255); doc.setFontSize(Math.max(4, header * 0.3)); doc.text(opts.subtitle, margin + header * 1.12, header * 0.74);
+
+  // Level bands and amber rail.
+  fillHex("#FDE68A"); doc.rect(X(12), Y(0), mm(48), mm(layout.height), "F");
+  for (const L of layout.layers) {
+    const info = levels[L.actualPosition], start = Math.max(0, L.offset - layout.gapMain / 2), size = L.size + layout.gapMain;
+    if (L.index % 2) { fillHex("#F8FAFC"); doc.rect(X(0), Y(start), mm(layout.width), mm(size), "F"); fillHex("#FDE68A"); doc.rect(X(12), Y(start), mm(48), mm(size), "F"); }
+    if (L.index > 0) { strokeHex("#F8B900"); doc.setLineWidth(Math.max(0.15, scale * 2)); doc.line(X(12), Y(start), X(layout.width - 12), Y(start)); }
+    doc.setTextColor(15, 23, 42); doc.setFont("helvetica", "bold"); doc.setFontSize(Math.max(2.5, mm(11)));
+    doc.text(displayLevel(info?.label) + (L.continuation ? " cont." : ""), X(36), Y(start + size / 2), { align: "center" });
+  }
+  // Orthogonal connectors (four vector line segments).
+  for (const e of layout.edges) {
+    const nums = (e.d.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number); if (nums.length < 5) continue;
+    const [x1, y1, bus, x2, y2] = nums;
+    strokeHex(e.inferred ? "#F59E0B" : "#1F2937"); doc.setLineWidth(Math.max(0.1, scale * (e.inferred ? 1.5 : 1.2)));
+    doc.setLineDashPattern(e.inferred ? [Math.max(0.5, mm(5)), Math.max(0.4, mm(4))] : [], 0);
+    doc.line(X(x1), Y(y1), X(x1), Y(bus)); doc.line(X(x1), Y(bus), X(x2), Y(bus)); doc.line(X(x2), Y(bus), X(x2), Y(y2));
+  }
+  doc.setLineDashPattern([], 0);
+  // Cards and text are direct PDF primitives — all remain vector/searchable/selectable.
+  for (const n of layout.nodes) {
+    const color = colorFor(levels, layout, n), x = X(n.x), y = Y(n.y), w = mm(n.w), h = mm(n.h);
+    if (n.kind === "node") {
+      const e = n.node!.emp, st = status(e), fill = st.temporary ? "#FEF08A" : "#FFFFFF", border = st.vacant ? "#64748B" : n.inferred ? "#F59E0B" : "#94A3B8";
+      fillHex(fill); strokeHex(border); doc.setLineWidth(Math.max(0.1, scale * 1.2)); doc.setLineDashPattern(st.vacant || n.inferred ? [Math.max(0.4, mm(4)), Math.max(0.3, mm(3))] : [], 0); doc.roundedRect(x, y, w, h, Math.max(0.4, mm(4)), Math.max(0.4, mm(4)), "FD"); doc.setLineDashPattern([], 0);
+      fillHex(color); doc.rect(x, y, w, Math.max(0.25, mm(6)), "F");
+      doc.setTextColor(15, 23, 42); doc.setFont("helvetica", "bold"); doc.setFontSize(Math.max(2.2, mm(9.5))); doc.text(st.vacant ? "VACANT" : e.fullName, x + w / 2, y + h * 0.29, { align: "center", maxWidth: w - mm(8) });
+      doc.setFont("helvetica", "normal"); doc.setFontSize(Math.max(1.8, mm(8))); doc.setTextColor(51, 65, 85); const lines = doc.splitTextToSize(e.title || "", w - mm(12)).slice(0, 2); doc.text(lines, x + w / 2, y + h * 0.45, { align: "center" });
+      fillHex(color); doc.roundedRect(x + mm(8), y + h - mm(20), Math.max(mm(28), 3), Math.max(mm(14), 2), Math.max(0.2, mm(2)), Math.max(0.2, mm(2)), "F");
+      doc.setTextColor(255, 255, 255); doc.setFont("helvetica", "bold"); doc.setFontSize(Math.max(1.7, mm(7))); doc.text(displayLevel(e.actualLevel), x + mm(22), y + h - mm(10), { align: "center" });
+    } else {
+      fillHex("#FFFFFF"); strokeHex(color); doc.setLineWidth(Math.max(0.1, scale)); doc.roundedRect(x, y, w, h, Math.max(0.4, mm(4)), Math.max(0.4, mm(4)), "FD");
+      const text = (n.members ?? []).map((m) => `${status(m.emp).vacant ? "VACANT" : m.emp.fullName} — ${m.emp.title}`).join("\n");
+      doc.setTextColor(15, 23, 42); doc.setFont("helvetica", "normal"); doc.setFontSize(Math.max(1.3, mm(6.5))); doc.text(doc.splitTextToSize(text, w - mm(10)), x + mm(5), y + mm(12));
+    }
+  }
+  // Print legend (vector shapes).
+  const ly = PH - footer + 2, boxW = 5, boxH = 3.2; let lx = Math.max(margin, PW / 2 - 55);
+  doc.setFont("helvetica", "normal"); doc.setFontSize(Math.max(3.2, footer * 0.28)); doc.setTextColor(71, 85, 105);
+  const legendBox = (label: string, fill: string, stroke: string, dashed = false) => { fillHex(fill); strokeHex(stroke); doc.setLineDashPattern(dashed ? [1.2, 1] : [], 0); doc.rect(lx, ly, boxW, boxH, "FD"); doc.setLineDashPattern([], 0); doc.text(label, lx + boxW + 1.5, ly + boxH * 0.82); lx += boxW + doc.getTextWidth(label) + 7; };
+  legendBox("Filled post", "#FFFFFF", "#94A3B8"); legendBox("Vacant post", "#FFFFFF", "#64748B", true); legendBox("Temporary / contract", "#FEF08A", "#D97706");
+  strokeHex("#F59E0B"); doc.setLineDashPattern([1.2, 1], 0); doc.line(lx, ly + boxH / 2, lx + boxW, ly + boxH / 2); doc.setLineDashPattern([], 0); doc.text("Inferred line", lx + boxW + 1.5, ly + boxH * 0.82); lx += boxW + doc.getTextWidth("Inferred line") + 7;
+  legendBox("Level band", "#FDE68A", "#FDE68A");
+  doc.setFont("helvetica", "normal"); doc.setFontSize(Math.max(4, footer * 0.36)); doc.setTextColor(100, 116, 139);
+  const left = "Made with", right = "by Mohibullah Afzalzada", gap = Math.max(4, footer * 0.7);
+  const totalW = doc.getTextWidth(left) + gap + doc.getTextWidth(right), fx = (PW - totalW) / 2, fy = PH - footer * 0.35;
+  doc.text(left, fx, fy);
+  const hx = fx + doc.getTextWidth(left) + gap * 0.18, hy = fy - gap * 0.24;
+  doc.setFillColor(239, 68, 68); doc.circle(hx, hy, gap * 0.16, "F"); doc.circle(hx + gap * 0.24, hy, gap * 0.16, "F"); doc.triangle(hx - gap * 0.16, hy + gap * 0.03, hx + gap * 0.40, hy + gap * 0.03, hx + gap * 0.12, hy + gap * 0.40, "F");
+  doc.setTextColor(100, 116, 139); doc.text(right, fx + doc.getTextWidth(left) + gap, fy);
+  doc.save(`ATOMA_Organogram_Vector_${stamp()}.pdf`);
+  return 1;
+}
+
+export async function downloadOrgPptx(layout: OrgLayout, levels: LevelInfo[], opts: OrgExportOpts): Promise<void> {
+  const PptxGenJS = (await import("pptxgenjs")).default;
+  const pptx = new PptxGenJS();
+  const aspect = layout.width / (layout.height + 108);
+  let sw = 50, sh = sw / aspect;
+  if (sh > 50) { sh = 50; sw = sh * aspect; }
+  sh = Math.max(5.625, sh); sw = Math.max(10, sw);
+  pptx.defineLayout({ name: "ATOMA_ORG", width: sw, height: sh });
+  pptx.layout = "ATOMA_ORG";
+  pptx.author = opts.generatedBy ?? "ATOMA";
+  pptx.subject = "Editable ATOMA organogram";
+  pptx.title = opts.title;
+  pptx.company = "ATOMA";
+  const slide = pptx.addSlide();
+  slide.background = { color: "FFFFFF" };
+  const sx = sw / layout.width, chartTop = 0.78, sy = (sh - chartTop - 0.34) / layout.height;
+  const X = (v: number) => v * sx, Y = (v: number) => chartTop + v * sy;
+  slide.addShape(pptx.ShapeType.rect, { x: 0, y: 0, w: sw, h: 0.7, fill: { color: "062B5B" }, line: { color: "062B5B" } });
+  slide.addShape(pptx.ShapeType.rect, { x: 0, y: 0.66, w: sw, h: 0.04, fill: { color: "00A8FF" }, line: { color: "00A8FF" } });
+  slide.addShape(pptx.ShapeType.chevron, { x: 0.18, y: 0.10, w: 0.38, h: 0.42, fill: { color: "2948FF" }, line: { color: "2948FF", transparency: 100 } });
+  slide.addShape(pptx.ShapeType.chevron, { x: 0.42, y: 0.10, w: 0.38, h: 0.42, fill: { color: "00BCEB", transparency: 4 }, line: { color: "00BCEB", transparency: 100 } });
+  slide.addText("ATOMA", { x: 0.82, y: 0.12, w: 0.9, h: 0.24, fontSize: 16, bold: true, color: "00A8FF", margin: 0 });
+  slide.addText(opts.title, { x: 1.62, y: 0.1, w: Math.max(2, sw - 2), h: 0.28, fontSize: 15, bold: true, color: "FFFFFF", margin: 0 });
+  slide.addText(opts.subtitle, { x: 1.62, y: 0.39, w: Math.max(2, sw - 2), h: 0.16, fontSize: 7, color: "CFE8FF", margin: 0 });
+  // bands + level rail
+  slide.addShape(pptx.ShapeType.rect, { x: X(12), y: chartTop, w: X(48), h: sy * layout.height, fill: { color: "FDE68A", transparency: 8 }, line: { color: "FDE68A", transparency: 100 } });
+  for (const L of layout.layers) {
+    const info = levels[L.actualPosition], start = Math.max(0, L.offset - layout.gapMain / 2), size = L.size + layout.gapMain;
+    if (L.index > 0) slide.addShape(pptx.ShapeType.line, { x: X(12), y: Y(start), w: X(layout.width - 24), h: 0, line: { color: "F8B900", width: 1.2 } });
+    slide.addText(displayLevel(info?.label) + (L.continuation ? " cont." : ""), { x: X(15), y: Y(start + size / 2) - 0.08, w: X(42), h: 0.16, fontSize: 7, bold: true, color: "0F172A", align: "center", margin: 0 });
+  }
+  // editable connector line segments
+  for (const e of layout.edges) {
+    const nums = (e.d.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
+    if (nums.length < 5) continue;
+    const [x1, y1, bus, x2, y2] = [nums[0], nums[1], nums[2], nums[3], nums[4]];
+    const color = e.inferred ? "F59E0B" : "1F2937";
+    const dash = e.inferred ? "dash" as const : "solid" as const;
+    slide.addShape(pptx.ShapeType.line, { x: X(x1), y: Y(y1), w: 0, h: (bus - y1) * sy, line: { color, width: 0.8, dashType: dash } });
+    slide.addShape(pptx.ShapeType.line, { x: X(Math.min(x1, x2)), y: Y(bus), w: Math.abs(x2 - x1) * sx, h: 0, line: { color, width: 0.8, dashType: dash } });
+    slide.addShape(pptx.ShapeType.line, { x: X(x2), y: Y(Math.min(bus, y2)), w: 0, h: Math.abs(y2 - bus) * sy, line: { color, width: 0.8, dashType: dash } });
+  }
+  for (const n of layout.nodes) {
+    const x = X(n.x), y = Y(n.y), w = Math.max(0.35, n.w * sx), h = Math.max(0.2, n.h * sy), color = colorFor(levels, layout, n).replace("#", "");
+    if (n.kind === "node") {
+      const e = n.node!.emp, st = status(e), fill = st.temporary ? "FEF08A" : "FFFFFF";
+      slide.addShape(pptx.ShapeType.roundRect, { x, y, w, h, rectRadius: 0.03, fill: { color: fill }, line: { color: st.vacant ? "64748B" : n.inferred ? "F59E0B" : "94A3B8", width: 0.7, dashType: st.vacant || n.inferred ? "dash" : "solid" } });
+      slide.addShape(pptx.ShapeType.rect, { x, y, w, h: Math.min(0.06, h * 0.08), fill: { color }, line: { color } });
+      slide.addText(st.vacant ? "VACANT" : e.fullName, { x: x + 0.04, y: y + 0.08, w: w - 0.08, h: h * 0.24, fontSize: Math.max(3.5, Math.min(7, w * 5)), bold: true, color: "0F172A", align: "center", margin: 0, fit: "shrink" });
+      slide.addText(e.title, { x: x + 0.04, y: y + h * 0.34, w: w - 0.08, h: h * 0.34, fontSize: Math.max(3, Math.min(6, w * 4.2)), color: "334155", align: "center", margin: 0, fit: "shrink", valign: "middle" });
+      slide.addText(displayLevel(e.actualLevel), { x: x + 0.04, y: y + h - Math.min(0.15, h * 0.2), w: Math.min(0.25, w * 0.2), h: Math.min(0.12, h * 0.16), fontSize: 4.5, bold: true, color: "FFFFFF", fill: { color }, align: "center", margin: 0 });
+    } else {
+      slide.addShape(pptx.ShapeType.roundRect, { x, y, w, h, fill: { color: "FFFFFF" }, line: { color, width: 0.7 } });
+      const text = (n.members ?? []).map((m) => `${status(m.emp).vacant ? "VACANT" : m.emp.fullName} — ${m.emp.title}`).join("\n");
+      slide.addText(text, { x: x + 0.04, y: y + 0.04, w: w - 0.08, h: h - 0.08, fontSize: Math.max(2.5, Math.min(5, w * 3)), color: "0F172A", margin: 0.02, fit: "shrink", breakLine: false });
+    }
+  }
+  const legY = sh - 0.42; let legX = Math.max(0.2, sw / 2 - 3.8);
+  const addLeg = (label: string, fill: string, line: string, dashType: "solid" | "dash" = "solid") => { slide.addShape(pptx.ShapeType.rect, { x: legX, y: legY, w: 0.18, h: 0.10, fill: { color: fill }, line: { color: line, width: 0.5, dashType } }); slide.addText(label, { x: legX + 0.22, y: legY - 0.01, w: 0.95, h: 0.12, fontSize: 4.5, color: "64748B", margin: 0 }); legX += 1.17; };
+  addLeg("Filled post", "FFFFFF", "94A3B8"); addLeg("Vacant post", "FFFFFF", "64748B", "dash"); addLeg("Temporary / contract", "FEF08A", "D97706"); addLeg("Inferred line", "FFFFFF", "F59E0B", "dash"); addLeg("Level band", "FDE68A", "FDE68A");
+  slide.addText(opts.footer ?? "Made with ♥ by Mohibullah Afzalzada", { x: 0.2, y: sh - 0.22, w: sw - 0.4, h: 0.12, fontSize: 6, color: "64748B", align: "center", margin: 0 });
+  await pptx.writeFile({ fileName: `ATOMA_Organogram_Editable_${stamp()}.pptx` });
+}
+
+export function printOrgSvg(layout: OrgLayout, levels: LevelInfo[], opts: OrgExportOpts): boolean {
+  const win = window.open("", "_blank");
+  if (!win) return false;
+  try { win.opener = null; } catch { /* ignore */ }
+  const svg = buildOrgSvg(layout, levels, opts);
+  win.document.write(`<!doctype html><html><head><title>${esc(opts.title)}</title><style>@page{size:landscape;margin:6mm}html,body{margin:0;background:#fff}svg{width:100%;height:auto;display:block}</style></head><body>${svg}<script>window.onload=()=>setTimeout(()=>window.print(),250)<\/script></body></html>`);
+  win.document.close();
+  return true;
+}
