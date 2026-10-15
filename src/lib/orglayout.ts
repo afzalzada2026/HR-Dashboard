@@ -153,7 +153,7 @@ export function layoutOrg(roots: OrgNode[], opts: LayoutOpts): OrgLayout {
   const finiteRootLevels = roots.map(o.layerOf).filter(Number.isFinite);
   const levelOffset = finiteRootLevels.length ? Math.min(...finiteRootLevels) : 0;
   const nodes: LNode[] = [];
-  const sizeOf = (ln: LNode): CardSize => (ln.kind === "group" ? groupCardSize(ln.members!.length, o.groupMax) : o.card);
+  const sizeOf = (ln: LNode): CardSize => ({ w: ln.w, h: ln.h });
   // Bands are ABSOLUTE: every person sits in their own level band (an L4 is never drawn in L6).
   const normalizedLevel = (n: OrgNode) => Math.max(0, o.layerOf(n));
 
@@ -362,7 +362,9 @@ export function layoutOrg(roots: OrgNode[], opts: LayoutOpts): OrgLayout {
   const naturalWidth = (halfSpan + rootSize / 2) * 2 + margin * 2;
   const contentWidth = maxX - minX + margin * 2;
   const sheetWidth = Number.isFinite(o.maxRowWidth) ? Math.max(720, Math.min(Math.max(naturalWidth, contentWidth), Math.max(contentWidth, o.maxRowWidth))) : Math.max(720, naturalWidth, contentWidth);
-  const shift = rootNode ? sheetWidth / 2 - (rootNode.x + rootSize / 2) : 0;
+  // Centre the CONTENT bbox on the sheet: symmetric margins make clipping at the
+  // left edge impossible regardless of where the head sits (staff officers, forests).
+  const shift = sheetWidth / 2 - (minX + maxX) / 2;
   for (const n of nodes) n.x += shift;
 
   // ── 7. orthogonal connectors: bus under the parent row, arrows at each child ──
@@ -429,7 +431,7 @@ export function layoutOrg(roots: OrgNode[], opts: LayoutOpts): OrgLayout {
     } else {
       // All horizontal legs travel in the gaps BETWEEN rows and all vertical travel
       // happens in the left gutter, so a line can never cross a card.
-      const spine = o.padding + o.gutter - 26;
+      const spine = o.padding + o.gutter - 12;
       const parentChannel = parentRow.offset + parentRow.size + o.gapMain * 0.22;
       const childChannel = (layers[childRowIndex]?.offset ?? y2) - o.gapMain * 0.22;
       pushEdge("spine", p.id, n.id, inferred, [

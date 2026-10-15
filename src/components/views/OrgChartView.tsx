@@ -340,11 +340,11 @@ function OrgInner() {
   // Downloads/print always use compact cards (reference behaviour): boxes stay small
   // and type keeps its designed size instead of a huge box with near-invisible text.
   const fullLayout = useMemo(
-    () => buildOrgLayout(roots, { card: COMPACT_CARD, isOpen: () => true, ...layerOpts }),
+    () => buildOrgLayout(roots, { card: COMPACT_CARD, isOpen: () => true, gapMain: 42, ...layerOpts }),
     [roots, layerOpts]
   );
   const exportViewLayout = useMemo(
-    () => buildOrgLayout(roots, { card: COMPACT_CARD, isOpen, ...layerOpts }),
+    () => buildOrgLayout(roots, { card: COMPACT_CARD, isOpen, gapMain: 42, ...layerOpts }),
     [roots, isOpen, layerOpts]
   );
 

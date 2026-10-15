@@ -604,10 +604,10 @@ export function Organogram({
         setExportMsg(`Print pack ready — ${pack.sheets.length} sheet(s) on ${pack.paper}.`);
       } else if (kind === "dept") {
         if (divisionEmployees && division) {
-          const sheets = buildDepartmentSheets(divisionEmployees, division, paper);
-          await downloadPrintPack(sheets, { ...options, title: `${title} · department sheets` }, paper, `org-chart-${slugify(division)}-departments-${timestampSlug()}.pdf`);
-          notify("success", "Department sheets ready", `${sheets.length} sheet(s) on ${paper}.`);
-          setExportMsg(`Department sheets downloaded — ${sheets.length} sheet(s).`);
+          const dept = buildDepartmentSheets(divisionEmployees, division, paper);
+          await downloadPrintPack(dept.sheets, { ...options, title: `${title} · department sheets` }, dept.paper, `org-chart-${slugify(division)}-departments-${timestampSlug()}.pdf`);
+          notify("success", "Department sheets ready", `${dept.sheets.length} department page(s) on ${dept.paper} — one department per landscape page.`);
+          setExportMsg(`Department sheets downloaded — ${dept.sheets.length} department page(s) on ${dept.paper}.`);
         }
       } else if (!printOrgSvg(exportLayout, options)) {
         throw new Error("The browser blocked the print window. Allow pop-ups and try again.");
