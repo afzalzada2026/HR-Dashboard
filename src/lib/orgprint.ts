@@ -96,9 +96,11 @@ export function maxRowWidth(paper: Paper): number {
   return 84 + 22 + perRow * 152 + Math.max(0, perRow - 1) * 21 + 30;
 }
 
-/** Layout optimised for paper: level rows wrap so nothing shrinks below readable size. */
+/** Layout optimised for paper: level rows wrap so nothing shrinks below readable size.
+ *  A tighter row gap than the screen preview puts more of the page into cards —
+ *  at the same ≥0.7 pt/px the type prints visibly larger. */
 export function buildPrintLayout(roots: OrgNode[], paper: Paper): OrgLayout {
-  return buildOrgLayout(roots, { maxRowWidth: maxRowWidth(paper) });
+  return buildOrgLayout(roots, { maxRowWidth: maxRowWidth(paper), gapMain: 42 });
 }
 
 /** Crops a layout to a run of rows, rebasing coordinates so every sheet starts at the origin. */
@@ -115,7 +117,9 @@ export function sliceRows(layout: OrgLayout, fromRow: number, toRow: number): Or
     const l = layout.layers[index];
     return { ...l, index: l.index - fromRow, offset: l.offset - offsetY };
   });
-  const width = Math.max(720, ...nodes.map((n) => n.x + n.w)) + 30;
+  // Keep the complete chart width: cropping rows must not discard the right
+  // margin established by content-bounds centring (or clip routed connectors).
+  const width = layout.width;
   const height = Math.max(200, ...nodes.map((n) => n.y + n.h)) + 20;
   return { ...layout, nodes, edges, layers, width, height, byId: new Map(nodes.map((n) => [n.id, n])) };
 }
@@ -178,20 +182,37 @@ export function sheetLayout(layout: OrgLayout, preferred: Paper = "A3"): { paper
   return { paper, sheets };
 }
 
-export function buildDepartmentSheets(employees: Employee[], division: string, paper: Paper): PrintSheet[] {
+/** One sheet PER DEPARTMENT on a single landscape page (never mixed or split; oversized
+ *  departments remain on one A2 page even if type must shrink). The paper
+ *  grows A4 → A3 → A2 until every department reaches ≥ 0.7 pt/px as a whole page. */
+export function buildDepartmentSheets(employees: Employee[], division: string, preferred: Paper = "A3"): { paper: Paper; sheets: PrintSheet[] } {
   const build = buildOrgTree(employees);
   const departments = [...new Set(employees.filter((e) => e.division === division).map((e) => e.department))].sort();
-  const out: PrintSheet[] = [];
-  for (const department of departments) {
-    const roots = scopeRoots(build, division, department);
-    const layout = buildPrintLayout(roots, paper);
-    const sheets = buildPrintSheets(layout, paper);
-    sheets.forEach((sheet, i) => {
-      out.push({ ...sheet, caption: `${division} · ${department}${sheet.caption ? ` · ${sheet.caption}` : ""}`, index: out.length, total: 0, fromRow: sheet.fromRow, toRow: sheet.toRow, layout: sheet.layout });
-      void i;
+  const scoped = departments
+    .map((department) => ({ department, roots: scopeRoots(build, division, department) }))
+    .filter((d) => d.roots.length > 0);
+  const order: Paper[] = ["A4", "A3", "A2"];
+  const from = order.includes(preferred) ? order.indexOf(preferred) : 1;
+  let paper = order[Math.min(from, order.length - 1)];
+  let whole: { department: string; layout: OrgLayout }[] = [];
+  for (let i = from; i < order.length; i++) {
+    paper = order[i];
+    whole = scoped.map((d) => {
+      const layout = buildPrintLayout(d.roots, paper);
+      return { department: d.department, layout: sliceRows(layout, 0, Math.max(0, layout.layers.length - 1)) };
     });
+    const worst = Math.min(...whole.map((w) => packScale(w.layout, paper)));
+    if (worst >= 0.7 || i === order.length - 1) break;
   }
-  return out.map((sheet, index) => ({ ...sheet, index, total: out.length }));
+  const sheets: PrintSheet[] = whole.map((w, index) => ({
+    layout: w.layout,
+    index,
+    total: whole.length,
+    caption: w.department,
+    fromRow: 0,
+    toRow: w.layout.layers.length - 1,
+  }));
+  return { paper, sheets };
 }
 
 /* ────────────────────────────── rendering ────────────────────────────── */
@@ -266,7 +287,7 @@ function cardSvg(n: LNode): string {
 function groupSvg(n: LNode): string {
   const members = n.members ?? [];
   const color = levelColor(members[0]?.level);
-  const grid = groupCardGrid(members.length);
+  const grid = groupCardGrid(members.length, members.length);
   const colW = (n.w - 12) / grid.cols;
   const rows = members
     .map((m, i) => {
@@ -443,7 +464,7 @@ export async function downloadPrintPack(sheets: PrintSheet[], opts: OrgExportOpt
         doc.setFontSize(Math.max(3.5, 8 * scale));
         const head = wrapCardText(`${members[0]?.level ?? ""} roster · ${members.length} positions`, n.w - 16, 9, true, 1)[0] ?? "";
         doc.text(head, x + S(8), y + S(17));
-        const grid = groupCardGrid(members.length);
+        const grid = groupCardGrid(members.length, members.length);
         const colW = (n.w - 12) / grid.cols;
         members.forEach((m, i) => {
           const mx = x + S(6 + (i % grid.cols) * colW);

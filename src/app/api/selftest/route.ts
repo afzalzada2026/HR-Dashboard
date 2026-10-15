@@ -2,9 +2,9 @@ import { NextResponse } from "next/server";
 import { computeKpis } from "@/lib/analytics";
 import { applyFilters, EMPTY_FILTERS, FILTER_LABELS } from "@/lib/filters";
 import { matchProvince, validateProvinceCoverage } from "@/lib/geo";
-import { buildOrgLayout, type OrgLayout } from "@/lib/orglayout";
+import { buildOrgLayout, groupCardSize, type OrgLayout } from "@/lib/orglayout";
 import { buildOrgTree, scopeRoots } from "@/lib/orgtree";
-import { buildSheetSvg, fitPrintPack, wrapCardText } from "@/lib/orgprint";
+import { buildDepartmentSheets, buildPrintLayout, buildSheetSvg, fitPrintPack, PAPERS, wrapCardText } from "@/lib/orgprint";
 import { buildVisioVdx } from "@/lib/org-export";
 import { canonicalOrgLevel, LEVEL_ORDER } from "@/lib/organogram-levels";
 import { enrichEmployees, normalizeRows } from "@/lib/normalize";
@@ -112,14 +112,15 @@ export async function GET() {
         const bottom = top + layer.size + layout.gapMain;
         return n.y < top - 0.01 || n.y + n.h > bottom + 0.01;
       }).length;
-      const root = layout.nodes[0];
-      if (Math.abs(root.x + root.w / 2 - layout.width / 2) > 2) uncentred++;
+      const leftM = Math.min(...layout.nodes.map((n) => n.x));
+      const rightM = layout.width - Math.max(...layout.nodes.map((n) => n.x + n.w));
+      if (Math.abs(leftM - rightM) > 6) uncentred++;
     }
     add("No overlapping boxes", worstOverlap === 0, `${divisions.length} divisions tested; worst overlap count ${worstOverlap}.`);
     add("No connector crosses a card", worstCrossing === 0, `Worst crossing count ${worstCrossing}; routing uses row gaps and the left gutter.`);
     add("No level mismatches", misplaced === 0, `${misplaced} cards outside their L6→L1 band.`);
     add("Cards inside level bands", outOfBand === 0, `${outOfBand} cards crossing an amber band separator.`);
-    add("Head centred / balanced branches", uncentred === 0, `${uncentred} divisions with an off-centre top card.`);
+    add("Chart centred with equal margins", uncentred === 0, `${uncentred} divisions whose content is off-centre on the sheet.`);
 
     // 3 geography
     const coverage = validateProvinceCoverage(["Kabul", "Herat", "Kandahar", "Ghazni", "Nimroz", "Sar-e-Pul", ...Array.from({ length: 28 }, (_, i) => `P${i}`)]);
@@ -141,6 +142,40 @@ export async function GET() {
     add("Print packing", sheets.length >= 1 && sheets.every((sheet) => sheet.layout.nodes.length > 0), `${sheets.length} sheet(s) auto-fitted to ${pack.paper} at ${scale.toFixed(2)} pt/px.`);
     add("Print scale readable", scale >= 0.7, `Paper ${pack.paper}; title text prints at ${(11.5 * scale).toFixed(1)} pt.`);
     add("Level vocabulary", canonicalOrgLevel("L3H") === "L3H" && LEVEL_ORDER.join(",") === "L6,L5,L4,L3H,L3,L2,L1", "L6→L1 with L3H head band supported.");
+
+    // Organisation-chart print-layout regressions (include grouped members).
+    const peopleOnSheet = (layout: OrgLayout) => layout.nodes.flatMap((n) => n.members ?? (n.node ? [n.node] : []));
+    const departmentPack = buildDepartmentSheets(employees, "Finance", "A4");
+    const head = buildOrgTree(employees).divisionHeads.get("Finance");
+    const departments = [...new Set(finance.map((e) => e.department))].sort();
+    add("One landscape page per department", departmentPack.sheets.length === departments.length &&
+      departmentPack.sheets.every((sheet, i) => sheet.caption === departments[i] && sheet.index === i && sheet.total === departments.length &&
+        sheet.fromRow === 0 && sheet.toRow === sheet.layout.layers.length - 1) &&
+      PAPERS[departmentPack.paper][0] > PAPERS[departmentPack.paper][1], `${departmentPack.sheets.length} whole-department pages on ${departmentPack.paper}.`);
+    add("Department scope and division head retained", !!head && departmentPack.sheets.every((sheet) => {
+      const people = peopleOnSheet(sheet.layout);
+      return people.some((n) => n.id === head.id) && people.every((n) => n.id === head.id || n.emp.department === sheet.caption) &&
+        finance.filter((e) => e.department === sheet.caption).every((e) => people.some((n) => n.emp.employeeNo === e.employeeNo));
+    }), "Every department includes its staff and division head, without other departments' staff.");
+    add("Print chart bounds and connector clearance", departmentPack.sheets.every(({ layout }) =>
+      overlapCount(layout) === 0 && segmentCrossings(layout) === 0 &&
+      layout.nodes.every((n) => n.x >= 0 && n.y >= 0 && n.x + n.w <= layout.width && n.y + n.h <= layout.height) &&
+      Math.abs(Math.min(...layout.nodes.map((n) => n.x)) - (layout.width - Math.max(...layout.nodes.map((n) => n.x + n.w)))) < 0.01 &&
+      layout.edges.every((e) => e.points.every(([x, y]) => x >= 0 && x <= layout.width && y >= 0 && y <= layout.height))),
+    "Whole-chart margins survive sheet cropping; boxes and connectors stay on the page without crossings.");
+    const groupedLayout = buildPrintLayout(scopeRoots(buildOrgTree(employees), "Customer Service & Operation"), "A4");
+    const groups = groupedLayout.nodes.filter((n) => n.kind === "group");
+    add("Grouped print card dimensions", groups.some((n) => (n.members?.length ?? 0) > 24) && groups.every((n) => {
+      const size = groupCardSize(n.members!.length, 48);
+      const layer = groupedLayout.layers[n.layer];
+      return n.w === size.w && n.h === size.h && n.y + n.h <= layer.offset + layer.size;
+    }) && overlapCount(groupedLayout) === 0 && segmentCrossings(groupedLayout) === 0 && groupedLayout.gapMain === 42,
+    "26-member lower-band roster uses its stored dimensions, tight spacing, and clear connectors.");
+    const oversized = Array.from({ length: 180 }, (_, i) => ({ ...finance[0], employeeNo: `PRINT-${i}`, fullName: `Print Manager ${i}`, title: `Manager ${i}`, level: "L3", department: "Print stress", supervisor: finance[0].fullName }));
+    const stressPack = buildDepartmentSheets([finance[0], ...oversized], "Finance", "A4");
+    add("Department paper grows up to A2", stressPack.paper === "A2" && stressPack.sheets.length === 2 &&
+      buildDepartmentSheets(finance, "Finance", "A2").paper === "A2" && buildDepartmentSheets([], "Missing", "A4").sheets.length === 0,
+    `Oversized department stays whole on ${stressPack.paper}; preferred paper and empty scope handled.`);
 
     // 5 storage consistency
     add("Card geometry", CARD_W === 152 && CARD_H === 58, "Compact cards keep printed type readable.");

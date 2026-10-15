@@ -142,6 +142,11 @@ export async function downloadOrgPptx(layout: OrgLayout, opts: OrgExportOpts): P
   }
   sh = Math.max(5.625, sh);
   sw = Math.max(10, sw);
+  if (sw < sh) {
+    // All organogram prints are landscape — widen a narrow canvas rather than
+    // shipping a portrait-ish slide.
+    sw = sh;
+  }
   pptx.defineLayout({ name: "ATOMA_ORG", width: sw, height: sh });
   pptx.layout = "ATOMA_ORG";
   pptx.author = opts.generatedBy ?? "ATOMA";
@@ -220,7 +225,7 @@ export async function downloadOrgPptx(layout: OrgLayout, opts: OrgExportOpts): P
       slide.addShape(pptx.ShapeType.rect, { x, y, w, h: Y(26), fill: { color: "F8FAFC" }, line: { color: "F8FAFC", transparency: 100 } });
       const head = wrapCardText(`${members[0]?.level ?? ""} roster · ${members.length} positions`, n.w - 16, 9, true, 1)[0] ?? "";
       slide.addText(head, { x: x + X(8), y: CY(n.y + 6), w: w - X(16), h: Y(16), fontSize: fnt(9), bold: true, color: "0F172A", margin: 0, valign: "top" });
-      const grid = groupCardGrid(members.length);
+      const grid = groupCardGrid(members.length, members.length);
       const colW = (n.w - 12) / grid.cols;
       members.forEach((m, i) => {
         const col = i % grid.cols;
